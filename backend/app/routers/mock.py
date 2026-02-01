@@ -205,3 +205,162 @@ async def clear_all_data(
         "deleted_counts": counts,
         "total_deleted": sum(counts.values()),
     }
+
+
+@router.get("/data-summary")
+async def get_user_data_summary(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get a comprehensive summary of all health data for the current user.
+    Returns counts, date ranges, and recent records for each data type.
+    """
+    
+    async def get_data_type_summary(model: Any, date_field: str, limit: int = 10) -> dict:
+        """Helper to get summary for a data type"""
+        # Get count
+        count_result = await db.execute(
+            select(func.count()).select_from(model).where(model.user_id == current_user.id)
+        )
+        count = count_result.scalar() or 0
+        
+        if count == 0:
+            return {
+                "count": 0,
+                "first_date": None,
+                "last_date": None,
+                "recent": []
+            }
+        
+        # Get date range
+        date_col = getattr(model, date_field)
+        min_date_result = await db.execute(
+            select(func.min(date_col)).where(model.user_id == current_user.id)
+        )
+        max_date_result = await db.execute(
+            select(func.max(date_col)).where(model.user_id == current_user.id)
+        )
+        first_date = min_date_result.scalar()
+        last_date = max_date_result.scalar()
+        
+        # Get recent records
+        recent_result = await db.execute(
+            select(model)
+            .where(model.user_id == current_user.id)
+            .order_by(date_col.desc())
+            .limit(limit)
+        )
+        recent_records = recent_result.scalars().all()
+        
+        # Convert to dict
+        recent = []
+        for record in recent_records:
+            record_dict = {
+                "id": str(record.id),
+                date_field: str(getattr(record, date_field)) if getattr(record, date_field) else None
+            }
+            # Add type-specific fields - Food Entries
+            if hasattr(record, 'food_name'):
+                record_dict["food_name"] = record.food_name
+            if hasattr(record, 'calories'):
+                record_dict["calories"] = record.calories
+            if hasattr(record, 'protein_g'):
+                record_dict["protein_g"] = record.protein_g
+            
+            # Sleep Entries
+            if hasattr(record, 'bedtime') and hasattr(record, 'wake_time'):
+                record_dict["bedtime"] = str(record.bedtime) if record.bedtime else None
+                record_dict["wake_time"] = str(record.wake_time) if record.wake_time else None
+            if hasattr(record, 'duration_hours'):
+                record_dict["duration_hours"] = record.duration_hours
+            if hasattr(record, 'quality_score'):
+                record_dict["quality_score"] = record.quality_score
+            
+            # Exercise Entries
+            if hasattr(record, 'exercise_type'):
+                record_dict["exercise_type"] = record.exercise_type.value if record.exercise_type else None
+            if hasattr(record, 'exercise_name'):
+                record_dict["exercise_name"] = record.exercise_name
+            if hasattr(record, 'duration_minutes'):
+                record_dict["duration_minutes"] = record.duration_minutes
+            if hasattr(record, 'calories_burned'):
+                record_dict["calories_burned"] = record.calories_burned
+            
+            # Vital Signs
+            if hasattr(record, 'resting_heart_rate'):
+                record_dict["resting_heart_rate"] = record.resting_heart_rate
+            if hasattr(record, 'hrv_ms'):
+                record_dict["hrv_ms"] = record.hrv_ms
+            
+            # Body Metrics
+            if hasattr(record, 'weight_kg'):
+                record_dict["weight_kg"] = record.weight_kg
+            if hasattr(record, 'body_fat_pct'):
+                record_dict["body_fat_pct"] = record.body_fat_pct
+            
+            # Chronic Metrics
+            if hasattr(record, 'condition_type'):
+                record_dict["condition_type"] = record.condition_type.value if record.condition_type else None
+            if hasattr(record, 'blood_glucose_mgdl'):
+                record_dict["blood_glucose_mgdl"] = record.blood_glucose_mgdl
+            if hasattr(record, 'time_of_day') and hasattr(record, 'condition_type'):
+                record_dict["time_of_day"] = record.time_of_day.value if record.time_of_day else None
+            
+            # Anomalies
+            if hasattr(record, 'metric_name'):
+                record_dict["metric_name"] = record.metric_name
+            if hasattr(record, 'value'):
+                record_dict["value"] = record.value
+            if hasattr(record, 'severity'):
+                record_dict["severity"] = record.severity.value if record.severity else None
+            
+            # Correlations
+            if hasattr(record, 'metric_a') and hasattr(record, 'metric_b'):
+                record_dict["metric_a"] = record.metric_a
+                record_dict["metric_b"] = record.metric_b
+            if hasattr(record, 'correlation_value'):
+                record_dict["correlation_value"] = record.correlation_value
+            if hasattr(record, 'strength'):
+                record_dict["strength"] = record.strength.value if record.strength else None
+            recent.append(record_dict)
+        
+        return {
+            "count": count,
+            "first_date": str(first_date) if first_date else None,
+            "last_date": str(last_date) if last_date else None,
+            "recent": recent
+        }
+    
+    # Get summaries for each data type
+    food_summary = await get_data_type_summary(FoodEntry, "date")
+    sleep_summary = await get_data_type_summary(SleepEntry, "date")
+    exercise_summary = await get_data_type_summary(ExerciseEntry, "date")
+    vitals_summary = await get_data_type_summary(VitalSigns, "date")
+    body_summary = await get_data_type_summary(BodyMetrics, "date")
+    chronic_summary = await get_data_type_summary(ChronicMetrics, "date")
+    anomalies_summary = await get_data_type_summary(Anomaly, "date")
+    correlations_summary = await get_data_type_summary(Correlation, "detected_at")
+    
+    total_records = (
+        food_summary["count"] +
+        sleep_summary["count"] +
+        exercise_summary["count"] +
+        vitals_summary["count"] +
+        body_summary["count"] +
+        chronic_summary["count"] +
+        anomalies_summary["count"] +
+        correlations_summary["count"]
+    )
+    
+    return {
+        "food_entries": food_summary,
+        "sleep_entries": sleep_summary,
+        "exercise_entries": exercise_summary,
+        "vital_signs": vitals_summary,
+        "body_metrics": body_summary,
+        "chronic_metrics": chronic_summary,
+        "anomalies": anomalies_summary,
+        "correlations": correlations_summary,
+        "total_records": total_records
+    }

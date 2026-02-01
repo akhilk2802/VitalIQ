@@ -143,7 +143,7 @@ function AnomalyItem({ anomaly, onAcknowledge }: AnomalyItemProps) {
           </div>
           <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
             {anomaly.explanation ||
-              `Value of ${anomaly.value.toFixed(1)} deviates ${anomaly.deviation.toFixed(1)} from baseline (${anomaly.baseline_value.toFixed(1)})`}
+              `Value of ${anomaly.metric_value.toFixed(1)} deviates ${anomaly.anomaly_score.toFixed(1)}σ from baseline (${anomaly.baseline_value.toFixed(1)})`}
           </p>
           <p className="mt-1 text-xs text-muted-foreground/70">
             {getRelativeTime(anomaly.detected_at)}

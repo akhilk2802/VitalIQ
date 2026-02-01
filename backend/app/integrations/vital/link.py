@@ -42,7 +42,7 @@ class VitalLinkManager:
         Start the connection flow for a user and provider.
         
         Returns:
-            dict with link_url and connection_id
+            dict with link_url, connection_id, and mock_mode flag
         """
         # Check if connection already exists
         existing = await self._get_existing_connection(user_id, provider)
@@ -52,7 +52,36 @@ class VitalLinkManager:
         # Get or create Vital user
         vital_user_id = await self._ensure_vital_user(user_id)
         
-        # Create pending connection record
+        # Check if we're in mock mode - if so, auto-complete the connection
+        if self.vital_client.mock_mode:
+            # In mock mode, directly create a connected record
+            if existing:
+                connection = existing
+                connection.status = ConnectionStatus.connected
+                connection.error_message = None
+                connection.updated_at = datetime.utcnow()
+            else:
+                connection = UserConnection(
+                    user_id=user_id,
+                    provider=provider,
+                    vital_user_id=vital_user_id,
+                    status=ConnectionStatus.connected
+                )
+                self.db.add(connection)
+            
+            await self.db.flush()
+            
+            return {
+                "connection_id": str(connection.id),
+                "link_url": None,  # No URL needed in mock mode
+                "link_token": None,
+                "expires_at": None,
+                "provider": provider.value,
+                "mock_mode": True,
+                "message": f"Mock mode: {provider.value} connected successfully! In production, this would open Vital's OAuth flow."
+            }
+        
+        # Production mode: Create pending connection and get link URL
         if existing:
             connection = existing
             connection.status = ConnectionStatus.pending
@@ -80,7 +109,9 @@ class VitalLinkManager:
             "link_url": link_response.link_url,
             "link_token": link_response.link_token,
             "expires_at": link_response.expires_at.isoformat(),
-            "provider": provider.value
+            "provider": provider.value,
+            "mock_mode": False,
+            "message": f"Redirecting to {provider.value} authorization..."
         }
     
     async def handle_connection_success(

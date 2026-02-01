@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { correlationsApi } from '@/api'
+import { correlationsApi, type JobResponse, type JobStatus } from '@/api/correlations'
 import { cn } from '@/lib/utils'
 import { GlassCard } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Progress } from '@/components/ui/progress'
 import {
   GitBranch,
   RefreshCw,
@@ -15,15 +16,84 @@ import {
   Lightbulb,
   ArrowRight,
   Zap,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import type { Correlation } from '@/types'
 
+const ACTIVE_JOB_KEY = 'vitaliq_correlation_job'
+
+interface StoredJob {
+  jobId: string
+  startedAt: string
+}
+
 export function CorrelationsPage() {
   const [filter, setFilter] = useState<'all' | 'actionable'>('actionable')
+  const [analysisProgress, setAnalysisProgress] = useState<{
+    progress: number
+    message: string
+    status: JobStatus
+  } | null>(null)
+  const [isPolling, setIsPolling] = useState(false)
   const queryClient = useQueryClient()
 
+  // Check for active job on mount and resume polling
+  useEffect(() => {
+    const storedJob = localStorage.getItem(ACTIVE_JOB_KEY)
+    if (storedJob && !isPolling) {
+      try {
+        const { jobId } = JSON.parse(storedJob) as StoredJob
+        resumePolling(jobId)
+      } catch {
+        localStorage.removeItem(ACTIVE_JOB_KEY)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clearActiveJob = useCallback(() => {
+    localStorage.removeItem(ACTIVE_JOB_KEY)
+    setAnalysisProgress(null)
+    setIsPolling(false)
+  }, [])
+
+  const resumePolling = useCallback(async (jobId: string) => {
+    setIsPolling(true)
+    setAnalysisProgress({ progress: 0, message: 'Resuming analysis...', status: 'running' })
+
+    try {
+      // Start polling
+      const completedJob = await correlationsApi.waitForCompletion(
+        jobId,
+        (job: JobResponse) => {
+          setAnalysisProgress({
+            progress: job.progress,
+            message: job.message,
+            status: job.status,
+          })
+        }
+      )
+
+      // Job completed successfully
+      clearActiveJob()
+      queryClient.invalidateQueries({ queryKey: ['correlations'] })
+      
+      if (completedJob.result) {
+        toast.success(
+          `Analysis complete: ${completedJob.result.new_correlations} correlations discovered`,
+          { icon: <CheckCircle2 className="h-4 w-4 text-exercise" /> }
+        )
+      }
+    } catch (error) {
+      clearActiveJob()
+      toast.error(error instanceof Error ? error.message : 'Analysis failed', {
+        icon: <XCircle className="h-4 w-4 text-heart" />,
+      })
+    }
+  }, [clearActiveJob, queryClient])
+
   const { data: correlations, isLoading } = useQuery({
-    queryKey: ['correlations', 'all'],
+    queryKey: ['correlations', 'list', filter],
     queryFn: () =>
       correlationsApi.getCorrelations({
         actionable_only: filter === 'actionable',
@@ -31,31 +101,65 @@ export function CorrelationsPage() {
       }),
   })
 
-  const { data: insights, isLoading: insightsLoading } = useQuery({
+  const { data: insights } = useQuery({
     queryKey: ['correlations', 'insights'],
     queryFn: () => correlationsApi.getCorrelationInsights(60),
   })
 
   const detectMutation = useMutation({
-    mutationFn: () =>
-      correlationsApi.detectCorrelations({
+    mutationFn: async () => {
+      // Start the job
+      const startResponse = await correlationsApi.startDetection({
         days: 60,
         include_granger: true,
         include_pearson: true,
         include_cross_correlation: true,
         include_mutual_info: true,
         generate_insights: true,
-      }),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['correlations'] })
-      toast.success(
-        `Analysis complete: ${result.new_correlations} new correlations discovered`
+      })
+
+      // Store job ID for persistence
+      localStorage.setItem(
+        ACTIVE_JOB_KEY,
+        JSON.stringify({ jobId: startResponse.job_id, startedAt: new Date().toISOString() })
+      )
+
+      // Poll for completion
+      return correlationsApi.waitForCompletion(
+        startResponse.job_id,
+        (job: JobResponse) => {
+          setAnalysisProgress({
+            progress: job.progress,
+            message: job.message,
+            status: job.status,
+          })
+        }
       )
     },
-    onError: () => {
-      toast.error('Failed to run correlation analysis')
+    onMutate: () => {
+      setIsPolling(true)
+      setAnalysisProgress({ progress: 0, message: 'Starting analysis...', status: 'pending' })
+    },
+    onSuccess: (completedJob) => {
+      clearActiveJob()
+      queryClient.invalidateQueries({ queryKey: ['correlations'] })
+      
+      if (completedJob.result) {
+        toast.success(
+          `Analysis complete: ${completedJob.result.new_correlations} correlations discovered`,
+          { icon: <CheckCircle2 className="h-4 w-4 text-exercise" /> }
+        )
+      }
+    },
+    onError: (error) => {
+      clearActiveJob()
+      toast.error(error instanceof Error ? error.message : 'Failed to run correlation analysis', {
+        icon: <XCircle className="h-4 w-4 text-heart" />,
+      })
     },
   })
+
+  const isAnalyzing = detectMutation.isPending || isPolling
 
   const strengthGroups = correlations?.reduce(
     (acc, c) => {
@@ -78,17 +182,36 @@ export function CorrelationsPage() {
         </div>
         <Button
           onClick={() => detectMutation.mutate()}
-          disabled={detectMutation.isPending}
+          disabled={isAnalyzing}
         >
           <RefreshCw
-            className={cn('mr-2 h-4 w-4', detectMutation.isPending && 'animate-spin')}
+            className={cn('mr-2 h-4 w-4', isAnalyzing && 'animate-spin')}
           />
-          Analyze
+          {isAnalyzing ? 'Analyzing...' : 'Analyze'}
         </Button>
       </div>
 
+      {/* Analysis Progress */}
+      {analysisProgress && (
+        <GlassCard className="p-4 border-l-4 border-l-primary">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                <span className="font-medium">Running Correlation Analysis</span>
+              </div>
+              <span className="text-sm font-medium text-primary">
+                {analysisProgress.progress}%
+              </span>
+            </div>
+            <Progress value={analysisProgress.progress} className="h-2" />
+            <p className="text-sm text-muted-foreground">{analysisProgress.message}</p>
+          </div>
+        </GlassCard>
+      )}
+
       {/* Insights */}
-      {insights && (
+      {insights && !analysisProgress && (
         <GlassCard className="p-6">
           <div className="flex items-center gap-2 mb-4">
             <Lightbulb className="h-5 w-5 text-nutrition" />
@@ -187,9 +310,20 @@ export function CorrelationsPage() {
           <div className="flex flex-col items-center text-center">
             <GitBranch className="h-12 w-12 text-muted-foreground/50" />
             <h3 className="mt-4 font-medium">No correlations found</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Run the analysis to discover patterns in your data
+            <p className="mt-1 text-sm text-muted-foreground max-w-md">
+              Click the <strong>"Analyze"</strong> button above to run correlation detection.
+              This requires at least 14 days of health data.
             </p>
+            <Button
+              className="mt-4"
+              onClick={() => detectMutation.mutate()}
+              disabled={isAnalyzing}
+            >
+              <RefreshCw
+                className={cn('mr-2 h-4 w-4', isAnalyzing && 'animate-spin')}
+              />
+              {isAnalyzing ? 'Analyzing...' : 'Run Analysis Now'}
+            </Button>
           </div>
         </GlassCard>
       ) : (

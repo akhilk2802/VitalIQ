@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { PersonaInfo, MockDataResult } from '@/types'
+import type { PersonaInfo, MockDataResult, DataSummary } from '@/types'
 
 export type PersonaType = 
   | 'active_athlete'
@@ -37,6 +37,11 @@ export const mockApi = {
 
   clearAllData: async (): Promise<{ message: string; deleted_counts: Record<string, number>; total_deleted: number }> => {
     const response = await apiClient.delete('/mock/clear')
+    return response.data
+  },
+
+  getDataSummary: async (): Promise<DataSummary> => {
+    const response = await apiClient.get<DataSummary>('/mock/data-summary')
     return response.data
   },
 }

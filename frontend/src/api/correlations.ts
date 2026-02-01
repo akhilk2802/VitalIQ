@@ -39,15 +39,107 @@ export interface CorrelationInsights {
   generated_at: string
 }
 
+// Job status types
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface JobResponse {
+  job_id: string
+  status: JobStatus
+  progress: number
+  message: string
+  result?: CorrelationDetectionResult
+  error?: string
+  created_at: string
+  started_at?: string
+  completed_at?: string
+}
+
+export interface DetectStartResponse {
+  job_id: string
+  status: string
+  message: string
+}
+
 export const correlationsApi = {
   getCorrelations: async (params: CorrelationsParams = {}): Promise<Correlation[]> => {
     const response = await apiClient.get<Correlation[]>('/correlations', { params })
     return response.data
   },
 
-  detectCorrelations: async (params: DetectCorrelationsParams = {}): Promise<CorrelationDetectionResult> => {
-    const response = await apiClient.post<CorrelationDetectionResult>('/correlations/detect', params)
+  /**
+   * Start correlation detection as a background job.
+   * Returns immediately with a job_id.
+   */
+  startDetection: async (params: DetectCorrelationsParams = {}): Promise<DetectStartResponse> => {
+    const response = await apiClient.post<DetectStartResponse>('/correlations/detect', params)
     return response.data
+  },
+
+  /**
+   * Get the status of a correlation detection job.
+   */
+  getJobStatus: async (jobId: string): Promise<JobResponse> => {
+    const response = await apiClient.get<JobResponse>(`/correlations/jobs/${jobId}`)
+    return response.data
+  },
+
+  /**
+   * Poll for job completion with progress updates.
+   * Returns a promise that resolves when the job completes.
+   */
+  waitForCompletion: async (
+    jobId: string,
+    onProgress?: (job: JobResponse) => void,
+    pollInterval: number = 2000
+  ): Promise<JobResponse> => {
+    return new Promise((resolve, reject) => {
+      const poll = async () => {
+        try {
+          const job = await correlationsApi.getJobStatus(jobId)
+          
+          // Call progress callback
+          if (onProgress) {
+            onProgress(job)
+          }
+          
+          if (job.status === 'completed') {
+            resolve(job)
+          } else if (job.status === 'failed') {
+            reject(new Error(job.error || 'Job failed'))
+          } else {
+            // Still pending or running, poll again
+            setTimeout(poll, pollInterval)
+          }
+        } catch (error) {
+          reject(error)
+        }
+      }
+      
+      poll()
+    })
+  },
+
+  /**
+   * Convenience method: Start detection and wait for completion.
+   */
+  detectCorrelations: async (
+    params: DetectCorrelationsParams = {},
+    onProgress?: (job: JobResponse) => void
+  ): Promise<CorrelationDetectionResult> => {
+    // Start the job
+    const startResponse = await correlationsApi.startDetection(params)
+    
+    // Wait for completion
+    const completedJob = await correlationsApi.waitForCompletion(
+      startResponse.job_id,
+      onProgress
+    )
+    
+    if (!completedJob.result) {
+      throw new Error('Job completed but no result returned')
+    }
+    
+    return completedJob.result
   },
 
   getTopCorrelations: async (limit: number = 5): Promise<{ correlations: CorrelationSummary[]; total_actionable: number }> => {

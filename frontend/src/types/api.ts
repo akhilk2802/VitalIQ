@@ -1,28 +1,28 @@
 import type { DailySummary, HealthScore } from './metrics'
 
-// Dashboard types
+// Correlation summary for dashboard
+export interface CorrelationSummaryItem {
+  metric_a: string
+  metric_b: string
+  correlation_type: string
+  correlation_value: number
+  strength: string
+  lag_days: number
+  causal_direction?: string
+  insight?: string
+  is_actionable: boolean
+}
+
+// Dashboard response matching backend schema
 export interface DashboardResponse {
-  period: {
-    start_date: string
-    end_date: string
-    days: number
-  }
+  user_id: string
+  period_start: string
+  period_end: string
   daily_summaries: DailySummary[]
-  totals: {
-    sleep_hours: number
-    exercise_minutes: number
-    total_calories: number
-    meals_logged: number
-    workouts_logged: number
-  }
-  averages: {
-    sleep_hours: number
-    sleep_quality: number
-    daily_calories: number
-    daily_protein: number
-    resting_hr: number
-    hrv_ms: number
-  }
+  total_anomalies: number
+  unacknowledged_anomalies: number
+  top_correlations: CorrelationSummaryItem[]
+  correlation_insights: string[]
 }
 
 // Anomaly types
@@ -30,10 +30,12 @@ export interface Anomaly {
   id: string
   user_id: string
   date: string
+  source_table: string
+  source_id: string
   metric_name: string
-  value: number
+  metric_value: number
   baseline_value: number
-  deviation: number
+  anomaly_score: number
   severity: 'low' | 'medium' | 'high'
   detector_type: 'zscore' | 'isolation_forest' | 'ensemble'
   explanation?: string
@@ -217,6 +219,26 @@ export interface MockDataResult {
   anomaly_days: number[]
   embedded_patterns: string[]
   data_cleared: boolean
+}
+
+// Data summary types for viewing user data
+export interface DataTypeSummary {
+  count: number
+  first_date: string | null
+  last_date: string | null
+  recent: Record<string, unknown>[]
+}
+
+export interface DataSummary {
+  food_entries: DataTypeSummary
+  sleep_entries: DataTypeSummary
+  exercise_entries: DataTypeSummary
+  vital_signs: DataTypeSummary
+  body_metrics: DataTypeSummary
+  chronic_metrics: DataTypeSummary
+  anomalies: DataTypeSummary
+  correlations: DataTypeSummary
+  total_records: number
 }
 
 // Export types

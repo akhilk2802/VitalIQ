@@ -61,11 +61,26 @@ class CorrelationService:
         Returns:
             List of detected correlations
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Build feature matrix
         feature_eng = FeatureEngineer(self.db, user.id)
         daily_df = await feature_eng.build_daily_feature_matrix(days=days)
         
+        logger.info(f"Feature matrix shape: {daily_df.shape}, columns: {list(daily_df.columns)}")
+        
+        # Count rows with actual data (not all NaN)
+        non_null_rows = daily_df.dropna(how='all', subset=[c for c in daily_df.columns if c != 'date']).shape[0]
+        logger.info(f"Rows with data: {non_null_rows}")
+        
         if daily_df.empty or len(daily_df) < 14:
+            logger.warning(f"Not enough data for correlation analysis. DataFrame shape: {daily_df.shape}")
+            return []
+        
+        # Check if we have enough non-null data
+        if non_null_rows < 14:
+            logger.warning(f"Not enough non-null rows for correlation analysis: {non_null_rows}")
             return []
         
         # Compute period

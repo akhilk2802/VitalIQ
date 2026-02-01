@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { formatNumber, formatDuration } from '@/lib/utils'
+import { formatNumber, formatDuration, formatHours } from '@/lib/utils'
 import { METRIC_COLORS, METRIC_BG_COLORS } from '@/lib/constants'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
@@ -12,6 +12,7 @@ import {
   Droplet,
   HeartPulse,
   Battery,
+  Footprints,
   type LucideIcon,
 } from 'lucide-react'
 import type { MetricColor } from '@/types'
@@ -25,6 +26,7 @@ const iconMap: Record<string, LucideIcon> = {
   Droplet,
   HeartPulse,
   Battery,
+  Footprints,
 }
 
 interface MetricCardProps {
@@ -66,7 +68,8 @@ export function MetricCard({
 
   const formatValue = (val: number) => {
     if (formatAsTime) {
-      return formatDuration(val)
+      // formatAsTime is used for sleep which is in hours
+      return formatHours(val)
     }
     if (val >= 1000) {
       return formatNumber(val / 1000, 1) + 'k'

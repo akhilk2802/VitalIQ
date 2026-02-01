@@ -220,7 +220,7 @@ function AnomalyCard({
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             {anomaly.explanation ||
-              `Value of ${anomaly.value.toFixed(1)} deviates ${anomaly.deviation.toFixed(1)}σ from baseline (${anomaly.baseline_value.toFixed(1)})`}
+              `Value of ${anomaly.metric_value.toFixed(1)} deviates ${anomaly.anomaly_score.toFixed(1)}σ from baseline (${anomaly.baseline_value.toFixed(1)})`}
           </p>
           <p className="mt-2 text-xs text-muted-foreground/70">
             Detected {getRelativeTime(anomaly.detected_at)} • {anomaly.detector_type}

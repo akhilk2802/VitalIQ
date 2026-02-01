@@ -9,31 +9,42 @@ export function TrendsPage() {
   const { data, isLoading } = useDashboard({ days: timeRange })
 
   // Transform daily summaries for charts
+  // Backend returns: sleep.duration_hours, sleep.quality_score
   const sleepData = data?.daily_summaries?.map((d) => ({
     date: d.date,
-    value: d.sleep?.hours || 0,
-    quality: d.sleep?.quality || 0,
+    value: d.sleep?.duration_hours || 0,
+    quality: d.sleep?.quality_score || 0,
   })) || []
 
+  // Backend returns: nutrition.total_calories, total_protein_g, total_carbs_g, total_fats_g
   const nutritionData = data?.daily_summaries?.map((d) => ({
     date: d.date,
     value: d.nutrition?.total_calories || 0,
-    protein: d.nutrition?.protein || 0,
-    carbs: d.nutrition?.carbs || 0,
-    fats: d.nutrition?.fats || 0,
+    protein: d.nutrition?.total_protein_g || 0,
+    carbs: d.nutrition?.total_carbs_g || 0,
+    fats: d.nutrition?.total_fats_g || 0,
   })) || []
 
-  const exerciseData = data?.daily_summaries?.map((d) => ({
+  // Backend returns: exercises as array - need to sum duration_minutes and calories_burned
+  const exerciseData = data?.daily_summaries?.map((d) => {
+    const exercises = d.exercises || []
+    return {
     date: d.date,
-    value: d.exercise?.total_minutes || 0,
-    calories: d.exercise?.total_calories || 0,
-  })) || []
+      value: exercises.reduce((sum, e) => sum + (e.duration_minutes || 0), 0),
+      calories: exercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0),
+    }
+  }) || []
 
-  const vitalsData = data?.daily_summaries?.map((d) => ({
+  // Backend returns: vitals as array - take first entry or average
+  const vitalsData = data?.daily_summaries?.map((d) => {
+    const vitals = d.vitals || []
+    const firstVital = vitals[0]
+    return {
     date: d.date,
-    heart_rate: d.vitals?.resting_hr || 0,
-    hrv: d.vitals?.hrv_ms || 0,
-  })) || []
+      heart_rate: firstVital?.resting_heart_rate || 0,
+      hrv: firstVital?.hrv_ms || 0,
+    }
+  }) || []
 
   return (
     <div className="space-y-6">

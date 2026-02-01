@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { mockApi, type PersonaType } from '@/api/mock'
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DataViewer } from '@/components/dashboard'
 import {
   Database,
   Play,
@@ -19,7 +20,17 @@ import {
   Heart,
   Sparkles,
   Check,
+  Info,
 } from 'lucide-react'
+
+const CURRENT_PERSONA_KEY = 'vitaliq_current_persona'
+
+interface StoredPersonaInfo {
+  id: string
+  name: string
+  generatedAt: string
+  days: number
+}
 
 const personaIcons: Record<string, React.ReactNode> = {
   active_athlete: <Activity className="h-5 w-5 text-exercise" />,
@@ -37,11 +48,32 @@ const personaColors: Record<string, string> = {
   healthy_balanced: 'border-recovery/50 bg-recovery/5',
 }
 
+const personaBgColors: Record<string, string> = {
+  active_athlete: 'bg-exercise/10',
+  poor_sleeper: 'bg-sleep/10',
+  pre_diabetic: 'bg-glucose/10',
+  stress_prone: 'bg-heart/10',
+  healthy_balanced: 'bg-recovery/10',
+}
+
 export function MockDataPage() {
   const [selectedPersona, setSelectedPersona] = useState<PersonaType>('healthy_balanced')
   const [days, setDays] = useState(150)
   const [clearExisting, setClearExisting] = useState(true)
+  const [currentPersona, setCurrentPersona] = useState<StoredPersonaInfo | null>(null)
   const queryClient = useQueryClient()
+
+  // Load stored persona info on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(CURRENT_PERSONA_KEY)
+    if (stored) {
+      try {
+        setCurrentPersona(JSON.parse(stored))
+      } catch {
+        localStorage.removeItem(CURRENT_PERSONA_KEY)
+      }
+    }
+  }, [])
 
   const { data: personasData, isLoading: personasLoading } = useQuery({
     queryKey: ['mock', 'personas'],
@@ -61,6 +93,18 @@ export function MockDataPage() {
       toast.success(
         `Generated ${result.total_entries} entries for ${result.persona_name} persona`
       )
+      
+      // Store current persona info
+      const personaInfo: StoredPersonaInfo = {
+        id: selectedPersona,
+        name: result.persona_name,
+        generatedAt: new Date().toISOString(),
+        days: days,
+      }
+      localStorage.setItem(CURRENT_PERSONA_KEY, JSON.stringify(personaInfo))
+      setCurrentPersona(personaInfo)
+      
+      // Invalidate all queries to refresh dashboard and data viewer
       queryClient.invalidateQueries()
     },
     onError: () => {
@@ -72,6 +116,12 @@ export function MockDataPage() {
     mutationFn: () => mockApi.clearAllData(),
     onSuccess: (result) => {
       toast.success(`Cleared ${result.total_deleted} entries`)
+      
+      // Clear stored persona info
+      localStorage.removeItem(CURRENT_PERSONA_KEY)
+      setCurrentPersona(null)
+      
+      // Invalidate all queries to refresh dashboard and data viewer
       queryClient.invalidateQueries()
     },
     onError: () => {
@@ -88,6 +138,35 @@ export function MockDataPage() {
           Generate realistic health data for testing and demonstration
         </p>
       </div>
+
+      {/* Current Persona Indicator */}
+      {currentPersona && (
+        <GlassCard className={cn('p-4', personaBgColors[currentPersona.id])}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg',
+                personaColors[currentPersona.id]
+              )}>
+                {personaIcons[currentPersona.id] || <User className="h-5 w-5" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-muted-foreground">Current Persona:</span>
+                  <span className="font-semibold">{currentPersona.name}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {currentPersona.days} days of data • Generated {new Date(currentPersona.generatedAt).toLocaleDateString()}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Info className="h-4 w-4" />
+              <span>Using mock data</span>
+            </div>
+          </div>
+        </GlassCard>
+      )}
 
       {/* Configuration */}
       <GlassCard className="p-6">
@@ -229,6 +308,9 @@ export function MockDataPage() {
           )}
         </GlassCard>
       )}
+
+      {/* Data Viewer */}
+      <DataViewer />
     </div>
   )
 }

@@ -13,9 +13,11 @@ export function useDashboard(params: DashboardParams = {}) {
 }
 
 export function useHealthScore(days: number = 30) {
+  // Health score requires at least 7 days of data (backend constraint)
+  const validDays = Math.max(7, days)
   return useQuery({
-    queryKey: ['healthScore', days],
-    queryFn: () => dashboardApi.getHealthScore(days),
+    queryKey: ['healthScore', validDays],
+    queryFn: () => dashboardApi.getHealthScore(validDays),
     staleTime: 10 * 60 * 1000, // 10 minutes
   })
 }

@@ -43,7 +43,11 @@ export const integrationsApi = {
     return response.data
   },
 
-  connectProvider: async (provider: string, redirectUrl?: string): Promise<{ link_url: string; message: string }> => {
+  connectProvider: async (provider: string, redirectUrl?: string): Promise<{ 
+    link_url: string | null
+    message: string
+    mock_mode?: boolean 
+  }> => {
     const response = await apiClient.post(`/integrations/connect/${provider}`, {
       redirect_url: redirectUrl,
     })
