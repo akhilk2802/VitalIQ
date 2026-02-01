@@ -53,6 +53,11 @@ class ChronicMetrics(Base):
         default=datetime.utcnow, 
         nullable=False
     )
+    
+    # Source tracking for external integrations
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="manual")
+    external_id: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="chronic_metrics")

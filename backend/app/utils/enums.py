@@ -80,3 +80,42 @@ class CausalDirection(str, Enum):
     b_causes_a = "b_causes_a"
     bidirectional = "bidirectional"
     none = "none"
+
+
+# Integration-related enums
+class DataSource(str, Enum):
+    manual = "manual"
+    google_fit = "google_fit"
+    fitbit = "fitbit"
+    garmin = "garmin"
+    oura = "oura"
+    myfitnesspal = "myfitnesspal"
+    apple_health = "apple_health"
+    whoop = "whoop"
+    withings = "withings"
+    polar = "polar"
+    strava = "strava"
+
+
+class ConnectionStatus(str, Enum):
+    pending = "pending"
+    connected = "connected"
+    disconnected = "disconnected"
+    error = "error"
+
+
+class SyncStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class SyncDataType(str, Enum):
+    sleep = "sleep"
+    activity = "activity"
+    nutrition = "nutrition"
+    body = "body"
+    vitals = "vitals"
+    workout = "workout"

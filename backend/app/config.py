@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str = ""
     
+    # Vital API (external health data integration)
+    VITAL_API_KEY: str = ""
+    VITAL_API_SECRET: str = ""
+    VITAL_ENVIRONMENT: str = "sandbox"  # "sandbox" or "production"
+    VITAL_WEBHOOK_SECRET: str = ""
+    VITAL_MOCK_MODE: bool = True  # Use mock data instead of real API calls
+    
     # App Settings
     DEBUG: bool = True
     APP_NAME: str = "VitalIQ"

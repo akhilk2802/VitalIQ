@@ -1,10 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import logging
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations
+from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations, integrations
+from app.services.scheduler import scheduler
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -12,8 +19,19 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
     await init_db()
+    
+    # Start background scheduler for periodic syncs (optional - disabled by default)
+    # Uncomment to enable daily automatic syncs
+    # if not settings.DEBUG:
+    #     await scheduler.start()
+    #     logger.info("Background sync scheduler started")
+    
     yield
+    
     # Shutdown
+    if scheduler.is_running:
+        await scheduler.stop()
+        logger.info("Background sync scheduler stopped")
 
 
 app = FastAPI(
@@ -44,6 +62,7 @@ app.include_router(anomalies.router, prefix=f"{settings.API_V1_PREFIX}/anomalies
 app.include_router(correlations.router, prefix=f"{settings.API_V1_PREFIX}/correlations", tags=["Correlations"])
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
 app.include_router(mock.router, prefix=f"{settings.API_V1_PREFIX}/mock", tags=["Mock Data"])
+app.include_router(integrations.router, prefix=f"{settings.API_V1_PREFIX}/integrations", tags=["Integrations"])
 
 
 @app.get("/")

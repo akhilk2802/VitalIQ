@@ -8,6 +8,8 @@ from app.models.body_metrics import BodyMetrics
 from app.models.chronic_metrics import ChronicMetrics
 from app.models.anomaly import Anomaly
 from app.models.correlation import Correlation
+from app.models.user_connection import UserConnection
+from app.models.raw_sync_data import RawSyncData
 
 __all__ = [
     "User",
@@ -19,4 +21,6 @@ __all__ = [
     "ChronicMetrics",
     "Anomaly",
     "Correlation",
+    "UserConnection",
+    "RawSyncData",
 ]

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date
 from typing import Optional
-from sqlalchemy import Date, DateTime, Float, Integer, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, Date, DateTime, Float, Integer, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -40,6 +40,11 @@ class VitalSigns(Base):
         default=datetime.utcnow, 
         nullable=False
     )
+    
+    # Source tracking for external integrations
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="manual")
+    external_id: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="vital_signs")
