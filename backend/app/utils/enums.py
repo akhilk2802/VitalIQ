@@ -119,3 +119,23 @@ class SyncDataType(str, Enum):
     body = "body"
     vitals = "vitals"
     workout = "workout"
+
+
+# RAG-related enums
+class KnowledgeSourceType(str, Enum):
+    curated = "curated"
+    pubmed = "pubmed"
+    medlineplus = "medlineplus"
+
+
+class HistoryEntityType(str, Enum):
+    anomaly = "anomaly"
+    correlation = "correlation"
+    insight = "insight"
+    chat_message = "chat_message"
+
+
+class MessageRole(str, Enum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"

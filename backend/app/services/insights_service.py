@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.anomaly import Anomaly
@@ -10,24 +11,83 @@ from app.schemas.anomaly import InsightResponse
 
 
 class InsightsService:
-    """Service for generating AI-powered health insights"""
+    """Service for generating AI-powered health insights with RAG support."""
     
-    def __init__(self):
+    def __init__(self, db: AsyncSession = None):
+        self.db = db
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+        self._health_rag = None
+        self._user_history_rag = None
+        self._prompt_builder = None
+    
+    @property
+    def health_rag(self):
+        """Lazy-load HealthKnowledgeRAG."""
+        if self._health_rag is None and self.db:
+            from app.rag.health_knowledge_rag import HealthKnowledgeRAG
+            self._health_rag = HealthKnowledgeRAG(self.db)
+        return self._health_rag
+    
+    @property
+    def user_history_rag(self):
+        """Lazy-load UserHistoryRAG."""
+        if self._user_history_rag is None and self.db:
+            from app.rag.user_history_rag import UserHistoryRAG
+            self._user_history_rag = UserHistoryRAG(self.db)
+        return self._user_history_rag
+    
+    @property
+    def prompt_builder(self):
+        """Lazy-load RAGPromptBuilder."""
+        if self._prompt_builder is None:
+            from app.rag.prompt_builder import RAGPromptBuilder
+            self._prompt_builder = RAGPromptBuilder()
+        return self._prompt_builder
     
     async def generate_anomaly_explanation(
         self,
         anomaly: Anomaly,
         user_baselines: dict,
     ) -> str:
-        """Generate a human-readable explanation for a single anomaly"""
+        """Generate a human-readable explanation for a single anomaly with RAG context."""
         
         if not self.client:
             return self._generate_fallback_explanation(anomaly)
         
+        # Gather RAG context if available
+        health_context = ""
+        user_history_context = ""
+        
+        if self.health_rag:
+            try:
+                health_context = await self.health_rag.retrieve_for_anomaly(anomaly, k=2)
+            except Exception as e:
+                print(f"Error retrieving health context: {e}")
+        
+        if self.user_history_rag:
+            try:
+                similar_anomalies = await self.user_history_rag.retrieve_similar_anomalies(
+                    user_id=anomaly.user_id,
+                    current_anomaly=anomaly,
+                    k=2
+                )
+                if similar_anomalies:
+                    user_history_context = self.user_history_rag.format_history_for_prompt(
+                        similar_anomalies, max_tokens=500
+                    )
+            except Exception as e:
+                print(f"Error retrieving user history: {e}")
+        
+        # Build RAG-enhanced prompt
+        context_section = ""
+        if health_context:
+            context_section += f"\n{health_context}\n"
+        if user_history_context:
+            context_section += f"\n{user_history_context}\n"
+        
         prompt = f"""You are a health data analyst explaining an anomaly to a user. 
 Be concise, helpful, and non-alarming. Use simple language.
-
+{context_section}
 Anomaly Details:
 - Date: {anomaly.date}
 - Metric: {anomaly.metric_name}
@@ -41,16 +101,17 @@ User's typical baselines:
 
 Provide a brief explanation (2-3 sentences) of:
 1. What was detected
-2. Possible reasons (lifestyle, health, etc.)
+2. Possible reasons (use the health knowledge context if relevant)
 3. Whether any action is recommended
 
+If the user has had similar anomalies before, mention that pattern.
 Do not provide medical advice. Keep it casual and supportive."""
 
         try:
             response = await self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
+                max_tokens=250,
                 temperature=0.7,
             )
             return response.choices[0].message.content.strip()

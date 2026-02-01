@@ -20,8 +20,17 @@ from app.utils.enums import CorrelationType, CorrelationStrength
 class CorrelationService:
     """Service for correlation detection and management."""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, user_history_rag=None):
         self.db = db
+        self._user_history_rag = user_history_rag
+    
+    @property
+    def user_history_rag(self):
+        """Lazy-load UserHistoryRAG to avoid circular imports."""
+        if self._user_history_rag is None:
+            from app.rag.user_history_rag import UserHistoryRAG
+            self._user_history_rag = UserHistoryRAG(self.db)
+        return self._user_history_rag
     
     async def detect_correlations(
         self,
@@ -140,6 +149,15 @@ class CorrelationService:
             saved.append(correlation)
         
         await self.db.flush()
+        
+        # Index correlations for RAG retrieval
+        for correlation in saved:
+            try:
+                await self.user_history_rag.index_correlation(correlation)
+            except Exception as e:
+                # Don't fail the whole operation if indexing fails
+                print(f"Failed to index correlation {correlation.id}: {e}")
+        
         return saved
     
     async def get_correlations(
