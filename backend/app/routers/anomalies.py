@@ -50,14 +50,22 @@ async def detect_anomalies(
     
     Runs Z-Score and Isolation Forest detectors on historical data
     and optionally generates AI explanations for detected anomalies.
+    
+    Improved baseline options:
+    - use_robust: Uses median/IQR instead of mean/std (resistant to outliers)
+    - use_adaptive: Dynamically adjusts thresholds based on data variance
+    - use_ewma_baseline: Uses recent-weighted baseline (last 7 days weighted more)
     """
     service = AnomalyService(db)
     
-    # Run detection
+    # Run detection with improved baseline settings
     results = await service.detect_anomalies(
         user=current_user,
         days=request.days,
         save_results=True,
+        use_robust=request.use_robust,
+        use_adaptive=request.use_adaptive,
+        use_ewma_baseline=request.use_ewma_baseline,
     )
     
     # Get all anomalies including newly detected
@@ -70,7 +78,10 @@ async def detect_anomalies(
     if request.include_explanation and results:
         insights_service = InsightsService()
         feature_eng = FeatureEngineer(db, current_user.id)
-        baselines = await feature_eng.get_user_baselines(days=30)
+        baselines = await feature_eng.get_user_baselines(
+            days=30, 
+            use_robust=request.use_robust
+        )
         
         # Update explanations for new anomalies
         for anomaly in all_anomalies:
@@ -153,7 +164,7 @@ async def get_insights(
         limit=50
     )
     
-    baselines = await feature_eng.get_user_baselines(days=30)
+    baselines = await feature_eng.get_user_baselines(days=30, use_robust=True)
     
     # Generate insights
     insights = await insights_service.generate_insights_summary(

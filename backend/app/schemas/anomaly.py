@@ -29,6 +29,10 @@ class AnomalyResponse(BaseModel):
 class AnomalyDetectionRequest(BaseModel):
     days: int = 60  # Number of days to analyze
     include_explanation: bool = True  # Whether to generate LLM explanations
+    # Improved baseline settings
+    use_robust: bool = True  # Use median/IQR instead of mean/std (resistant to outliers)
+    use_adaptive: bool = True  # Dynamically adjust thresholds based on data variance
+    use_ewma_baseline: bool = False  # Use recent-weighted (EWMA) baseline
 
 
 class AnomalyDetectionResult(BaseModel):

@@ -24,14 +24,20 @@ class AnomalyService:
         user: User,
         days: int = 60,
         save_results: bool = True,
+        use_robust: bool = True,
+        use_adaptive: bool = True,
+        use_ewma_baseline: bool = False,
     ) -> List[AnomalyResult]:
         """
-        Run full anomaly detection pipeline.
+        Run full anomaly detection pipeline with improved baseline calculation.
         
         Args:
             user: User to analyze
             days: Number of days of history to analyze
             save_results: Whether to persist results to database
+            use_robust: Use median/IQR instead of mean/std (resistant to outliers)
+            use_adaptive: Dynamically adjust thresholds based on data characteristics
+            use_ewma_baseline: Use recent-weighted (EWMA) baseline instead of simple average
         
         Returns:
             List of detected anomalies
@@ -39,13 +45,23 @@ class AnomalyService:
         # Build feature matrix
         feature_eng = FeatureEngineer(self.db, user.id)
         feature_df = await feature_eng.build_daily_feature_matrix(days=days)
-        baselines = await feature_eng.get_user_baselines(days=30)
+        
+        # Calculate robust baselines with EWMA support
+        baselines = await feature_eng.get_user_baselines(
+            days=30, 
+            use_robust=use_robust,
+            ewma_span=7  # 7-day EWMA for recent trend weighting
+        )
         
         if feature_df.empty:
             return []
         
-        # Run detectors
-        zscore_detector = ZScoreDetector()
+        # Run detectors with improved settings
+        zscore_detector = ZScoreDetector(
+            use_robust=use_robust,
+            use_adaptive=use_adaptive,
+            use_ewma_baseline=use_ewma_baseline
+        )
         iforest_detector = IsolationForestDetector()
         
         zscore_results = await zscore_detector.detect(

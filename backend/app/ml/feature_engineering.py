@@ -292,22 +292,104 @@ class FeatureEngineer:
         
         return df
     
-    async def get_user_baselines(self, days: int = 30) -> Dict[str, float]:
-        """Calculate user's baseline values for each metric"""
+    async def get_user_baselines(
+        self, 
+        days: int = 30, 
+        use_robust: bool = True,
+        ewma_span: int = 7
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate user's baseline values for each metric.
+        
+        Args:
+            days: Number of days of historical data to use
+            use_robust: If True, use median/IQR instead of mean/std (resistant to outliers)
+            ewma_span: Span for exponentially weighted moving average (recent-weighted baseline)
+        
+        Returns:
+            Dict of baseline stats per metric with:
+            - mean, std (traditional)
+            - median, iqr, q1, q3 (robust)
+            - ewma (recent-weighted)
+            - trimmed_mean (outlier-resistant mean)
+        """
         df = await self.build_daily_feature_matrix(days=days)
         
         baselines = {}
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         
         for col in numeric_cols:
-            if col != 'date':
-                values = df[col].dropna()
-                if len(values) > 0:
-                    baselines[col] = {
-                        'mean': float(values.mean()),
-                        'std': float(values.std()) if len(values) > 1 else 0,
-                        'min': float(values.min()),
-                        'max': float(values.max()),
-                    }
+            if col == 'date':
+                continue
+                
+            values = df[col].dropna()
+            if len(values) == 0:
+                continue
+            
+            # Traditional statistics
+            mean = float(values.mean())
+            std = float(values.std()) if len(values) > 1 else 0.0
+            
+            # Robust statistics (resistant to outliers)
+            median = float(values.median())
+            q1 = float(values.quantile(0.25))
+            q3 = float(values.quantile(0.75))
+            iqr = q3 - q1
+            
+            # Trimmed mean (exclude top/bottom 10% outliers)
+            trimmed_mean = float(self._trimmed_mean(values, trim_percent=0.1))
+            
+            # EWMA - Exponentially Weighted Moving Average (recent values weighted more)
+            ewma_value = float(values.ewm(span=ewma_span, adjust=False).mean().iloc[-1]) if len(values) > 0 else mean
+            
+            # Robust standard deviation estimate using MAD (Median Absolute Deviation)
+            # MAD is more resistant to outliers than standard deviation
+            mad = float(np.median(np.abs(values - median)))
+            robust_std = mad * 1.4826  # Scale factor to make MAD comparable to std for normal distribution
+            
+            baselines[col] = {
+                # Traditional
+                'mean': mean,
+                'std': std,
+                'min': float(values.min()),
+                'max': float(values.max()),
+                # Robust
+                'median': median,
+                'q1': q1,
+                'q3': q3,
+                'iqr': iqr,
+                'trimmed_mean': trimmed_mean,
+                'mad': mad,
+                'robust_std': robust_std,
+                # Recent-weighted
+                'ewma': ewma_value,
+                # Metadata
+                'n_samples': len(values),
+            }
         
         return baselines
+    
+    @staticmethod
+    def _trimmed_mean(values: pd.Series, trim_percent: float = 0.1) -> float:
+        """
+        Calculate trimmed mean by excluding extreme values.
+        
+        Args:
+            values: Series of values
+            trim_percent: Fraction to trim from each end (0.1 = trim 10% from each end)
+        
+        Returns:
+            Trimmed mean value
+        """
+        if len(values) < 4:  # Not enough data to trim
+            return values.mean()
+        
+        sorted_vals = values.sort_values()
+        n = len(sorted_vals)
+        trim_count = int(n * trim_percent)
+        
+        if trim_count == 0:
+            return values.mean()
+        
+        trimmed = sorted_vals.iloc[trim_count:-trim_count]
+        return trimmed.mean() if len(trimmed) > 0 else values.mean()
