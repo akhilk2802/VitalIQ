@@ -43,6 +43,10 @@ class User(Base):
     correlations = relationship("Correlation", back_populates="user", cascade="all, delete-orphan")
     connections = relationship("UserConnection", back_populates="user", cascade="all, delete-orphan")
     raw_sync_data = relationship("RawSyncData", back_populates="user", cascade="all, delete-orphan")
+    
+    # RAG relationships
+    history_embeddings = relationship("UserHistoryEmbedding", back_populates="user", cascade="all, delete-orphan")
+    chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"

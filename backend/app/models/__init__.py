@@ -11,6 +11,11 @@ from app.models.correlation import Correlation
 from app.models.user_connection import UserConnection
 from app.models.raw_sync_data import RawSyncData
 
+# RAG models
+from app.models.knowledge_embedding import KnowledgeEmbedding
+from app.models.user_history_embedding import UserHistoryEmbedding
+from app.models.chat import ChatSession, ChatMessage
+
 __all__ = [
     "User",
     "FoodEntry",
@@ -23,4 +28,9 @@ __all__ = [
     "Correlation",
     "UserConnection",
     "RawSyncData",
+    # RAG models
+    "KnowledgeEmbedding",
+    "UserHistoryEmbedding",
+    "ChatSession",
+    "ChatMessage",
 ]

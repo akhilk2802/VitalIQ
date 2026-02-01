@@ -127,7 +127,7 @@ async def get_morning_briefing(
     confidence = (recovery_result.confidence + 0.7) / 2  # Blend with default
     
     return MorningBriefingResponse(
-        date=target_date,
+        briefing_date=target_date,
         greeting=greeting,
         recovery=recovery_brief,
         cravings=cravings_brief,

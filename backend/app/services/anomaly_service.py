@@ -16,8 +16,17 @@ from app.ml.detectors.base import AnomalyResult
 class AnomalyService:
     """Service for anomaly detection and management"""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, user_history_rag=None):
         self.db = db
+        self._user_history_rag = user_history_rag
+    
+    @property
+    def user_history_rag(self):
+        """Lazy-load UserHistoryRAG to avoid circular imports."""
+        if self._user_history_rag is None:
+            from app.rag.user_history_rag import UserHistoryRAG
+            self._user_history_rag = UserHistoryRAG(self.db)
+        return self._user_history_rag
     
     async def detect_anomalies(
         self,
@@ -125,6 +134,15 @@ class AnomalyService:
             saved.append(anomaly)
         
         await self.db.flush()
+        
+        # Index anomalies for RAG retrieval (in background)
+        for anomaly in saved:
+            try:
+                await self.user_history_rag.index_anomaly(anomaly)
+            except Exception as e:
+                # Don't fail the whole operation if indexing fails
+                print(f"Failed to index anomaly {anomaly.id}: {e}")
+        
         return saved
     
     async def get_anomalies(

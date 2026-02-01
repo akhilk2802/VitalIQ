@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import text
 from app.config import settings
 
 
@@ -39,6 +40,40 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Initialize database tables"""
+    """Initialize database tables and required extensions/types."""
     async with engine.begin() as conn:
+        # Enable pgvector extension first (required for VECTOR columns)
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        
+        # Create enum types used by RAG models (if they don't exist)
+        # These must be created BEFORE the tables that reference them
+        
+        # KnowledgeSourceType enum
+        await conn.execute(text("""
+            DO $$ BEGIN
+                CREATE TYPE knowledgesourcetype AS ENUM ('curated', 'pubmed', 'medlineplus');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """))
+        
+        # HistoryEntityType enum
+        await conn.execute(text("""
+            DO $$ BEGIN
+                CREATE TYPE historyentitytype AS ENUM ('anomaly', 'correlation', 'insight', 'chat_message');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """))
+        
+        # MessageRole enum
+        await conn.execute(text("""
+            DO $$ BEGIN
+                CREATE TYPE messagerole AS ENUM ('user', 'assistant', 'system');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """))
+        
+        # Now create all tables (enums will already exist)
         await conn.run_sync(Base.metadata.create_all)

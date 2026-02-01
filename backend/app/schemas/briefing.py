@@ -45,7 +45,7 @@ class AnomalySummary(BaseModel):
 
 class MorningBriefingResponse(BaseModel):
     """Complete morning briefing response"""
-    date: date = Field(..., description="Briefing date")
+    briefing_date: date = Field(..., description="Briefing date")
     greeting: str = Field(..., description="Personalized greeting")
     
     # Core predictions
@@ -69,7 +69,7 @@ class MorningBriefingResponse(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "date": "2026-02-01",
+                "briefing_date": "2026-02-01",
                 "greeting": "Good morning! Here's your health forecast for today.",
                 "recovery": {
                     "score": 7,

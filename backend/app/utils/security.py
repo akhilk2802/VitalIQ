@@ -49,6 +49,15 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
+def decode_access_token(token: str) -> Optional[dict]:
+    """
+    Decode and validate a JWT access token.
+    
+    Alias for decode_token for WebSocket authentication.
+    """
+    return decode_token(token)
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
