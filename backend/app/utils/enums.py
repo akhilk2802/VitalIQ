@@ -55,3 +55,28 @@ class Severity(str, Enum):
     low = "low"
     medium = "medium"
     high = "high"
+
+
+class CorrelationType(str, Enum):
+    pearson = "pearson"
+    spearman = "spearman"
+    cross_correlation = "cross_correlation"
+    granger_causality = "granger_causality"
+    mutual_information = "mutual_information"
+
+
+class CorrelationStrength(str, Enum):
+    strong_positive = "strong_positive"      # r > 0.7
+    moderate_positive = "moderate_positive"  # 0.4 < r <= 0.7
+    weak_positive = "weak_positive"          # 0.2 < r <= 0.4
+    negligible = "negligible"                # -0.2 <= r <= 0.2
+    weak_negative = "weak_negative"          # -0.4 <= r < -0.2
+    moderate_negative = "moderate_negative"  # -0.7 <= r < -0.4
+    strong_negative = "strong_negative"      # r < -0.7
+
+
+class CausalDirection(str, Enum):
+    a_causes_b = "a_causes_b"
+    b_causes_a = "b_causes_a"
+    bidirectional = "bidirectional"
+    none = "none"

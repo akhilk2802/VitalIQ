@@ -40,6 +40,7 @@ class User(Base):
     body_metrics = relationship("BodyMetrics", back_populates="user", cascade="all, delete-orphan")
     chronic_metrics = relationship("ChronicMetrics", back_populates="user", cascade="all, delete-orphan")
     anomalies = relationship("Anomaly", back_populates="user", cascade="all, delete-orphan")
+    correlations = relationship("Correlation", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"

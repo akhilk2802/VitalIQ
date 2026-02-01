@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock
+from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(vitals.router, prefix=f"{settings.API_V1_PREFIX}/vitals", tag
 app.include_router(body.router, prefix=f"{settings.API_V1_PREFIX}/body", tags=["Body Metrics"])
 app.include_router(chronic.router, prefix=f"{settings.API_V1_PREFIX}/chronic", tags=["Chronic Health"])
 app.include_router(anomalies.router, prefix=f"{settings.API_V1_PREFIX}/anomalies", tags=["Anomalies"])
+app.include_router(correlations.router, prefix=f"{settings.API_V1_PREFIX}/correlations", tags=["Correlations"])
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
 app.include_router(mock.router, prefix=f"{settings.API_V1_PREFIX}/mock", tags=["Mock Data"])
 

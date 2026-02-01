@@ -11,6 +11,19 @@ from app.schemas.chronic import ChronicMetricsResponse
 from app.schemas.anomaly import AnomalyResponse
 
 
+class CorrelationSummaryItem(BaseModel):
+    """Lightweight correlation for dashboard display."""
+    metric_a: str
+    metric_b: str
+    correlation_type: str
+    correlation_value: float
+    strength: str
+    lag_days: int
+    causal_direction: Optional[str]
+    insight: Optional[str]
+    is_actionable: bool
+
+
 class DailySummary(BaseModel):
     date: date
     nutrition: Optional[DailyNutritionSummary]
@@ -29,6 +42,9 @@ class DashboardResponse(BaseModel):
     daily_summaries: List[DailySummary]
     total_anomalies: int
     unacknowledged_anomalies: int
+    # Correlation data
+    top_correlations: List[CorrelationSummaryItem] = []
+    correlation_insights: List[str] = []
 
 
 class HealthScore(BaseModel):

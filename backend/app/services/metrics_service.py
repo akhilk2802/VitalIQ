@@ -11,7 +11,8 @@ from app.models.vital_signs import VitalSigns
 from app.models.body_metrics import BodyMetrics
 from app.models.chronic_metrics import ChronicMetrics
 from app.models.anomaly import Anomaly
-from app.schemas.dashboard import DailySummary, DashboardResponse
+from app.models.correlation import Correlation
+from app.schemas.dashboard import DailySummary, DashboardResponse, CorrelationSummaryItem
 from app.schemas.food import DailyNutritionSummary, FoodEntryResponse
 from app.schemas.sleep import SleepEntryResponse
 from app.schemas.exercise import ExerciseEntryResponse
@@ -113,6 +114,34 @@ class MetricsService:
                 anomalies=[AnomalyResponse.model_validate(a) for a in day_anomalies],
             ))
         
+        # Get top correlations for dashboard
+        top_correlations = await self._get_top_correlations(user_id, limit=5)
+        correlation_summaries = [
+            CorrelationSummaryItem(
+                metric_a=c.metric_a,
+                metric_b=c.metric_b,
+                correlation_type=c.correlation_type.value,
+                correlation_value=c.correlation_value,
+                strength=c.strength.value,
+                lag_days=c.lag_days,
+                causal_direction=c.causal_direction.value if c.causal_direction else None,
+                insight=c.insight,
+                is_actionable=c.is_actionable
+            )
+            for c in top_correlations
+        ]
+        
+        # Generate correlation insights
+        correlation_insights = []
+        for c in top_correlations[:3]:
+            if c.causal_direction and c.causal_direction.value != 'none':
+                correlation_insights.append(f"{c.metric_a.replace('_', ' ').title()} predicts {c.metric_b.replace('_', ' ')}")
+            elif c.lag_days > 0:
+                correlation_insights.append(f"{c.metric_a.replace('_', ' ').title()} affects {c.metric_b.replace('_', ' ')} after {c.lag_days} day(s)")
+            elif abs(c.correlation_value) > 0.5:
+                direction = "positively" if c.correlation_value > 0 else "negatively"
+                correlation_insights.append(f"{c.metric_a.replace('_', ' ').title()} and {c.metric_b.replace('_', ' ')} are {direction} correlated")
+        
         return DashboardResponse(
             user_id=str(user_id),
             period_start=start_date,
@@ -120,6 +149,8 @@ class MetricsService:
             daily_summaries=daily_summaries,
             total_anomalies=total_anomalies,
             unacknowledged_anomalies=unacknowledged,
+            top_correlations=correlation_summaries,
+            correlation_insights=correlation_insights,
         )
     
     async def _get_food_entries(self, user_id: uuid.UUID, start: date, end: date) -> List[FoodEntry]:
@@ -205,3 +236,27 @@ class MetricsService:
             ).order_by(Anomaly.date, Anomaly.detected_at.desc())
         )
         return result.scalars().all()
+    
+    async def _get_top_correlations(self, user_id: uuid.UUID, limit: int = 5) -> List[Correlation]:
+        """Get top actionable correlations for dashboard display."""
+        # First try to get actionable correlations
+        result = await self.db.execute(
+            select(Correlation).where(
+                and_(
+                    Correlation.user_id == user_id,
+                    Correlation.is_actionable == True,
+                )
+            ).order_by(Correlation.confidence_score.desc()).limit(limit)
+        )
+        correlations = result.scalars().all()
+        
+        # If not enough actionable, get any top correlations
+        if len(correlations) < limit:
+            result = await self.db.execute(
+                select(Correlation).where(
+                    Correlation.user_id == user_id
+                ).order_by(Correlation.confidence_score.desc()).limit(limit)
+            )
+            correlations = result.scalars().all()
+        
+        return correlations

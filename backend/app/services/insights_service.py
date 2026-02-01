@@ -1,10 +1,11 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 from openai import AsyncOpenAI
 
 from app.config import settings
 from app.models.anomaly import Anomaly
+from app.models.correlation import Correlation
 from app.schemas.anomaly import InsightResponse
 
 
@@ -200,3 +201,221 @@ Focus on patterns across multiple anomalies. Be supportive and constructive."""
                 updated_count += 1
         
         return updated_count
+    
+    # ========== Correlation Insights ==========
+    
+    async def generate_correlation_insight(
+        self,
+        correlation: Correlation
+    ) -> Optional[Dict[str, str]]:
+        """Generate AI insight for a single correlation."""
+        
+        if not self.client:
+            return self._generate_fallback_correlation_insight(correlation)
+        
+        # Build context based on correlation type
+        correlation_context = self._build_correlation_context(correlation)
+        
+        prompt = f"""You are a health data analyst explaining a correlation to a user.
+Be concise, helpful, and actionable. Use simple language.
+
+Correlation Details:
+{correlation_context}
+
+Provide a response in this exact JSON format:
+{{
+    "insight": "A 1-2 sentence explanation of what this correlation means for the user",
+    "recommendation": "A specific, actionable recommendation based on this correlation"
+}}
+
+Focus on practical lifestyle implications. Do not provide medical advice."""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception:
+            return self._generate_fallback_correlation_insight(correlation)
+    
+    async def generate_correlation_insights(
+        self,
+        correlations: List[Correlation],
+        period_days: int = 30
+    ) -> Dict[str, Any]:
+        """Generate comprehensive insights from multiple correlations."""
+        
+        if not correlations:
+            return {
+                'summary': 'No correlations detected yet.',
+                'key_findings': [],
+                'recommendations': []
+            }
+        
+        if not self.client:
+            return self._generate_fallback_correlation_insights(correlations, period_days)
+        
+        # Prepare correlation summary
+        corr_summary = []
+        for c in correlations[:10]:  # Limit to top 10
+            corr_summary.append({
+                'metrics': f"{c.metric_a} ↔ {c.metric_b}",
+                'type': c.correlation_type.value,
+                'strength': c.strength.value,
+                'value': round(c.correlation_value, 3),
+                'lag_days': c.lag_days,
+                'causal_direction': c.causal_direction.value if c.causal_direction else None,
+                'is_actionable': c.is_actionable
+            })
+        
+        prompt = f"""You are a health data analyst providing insights from detected correlations.
+Be concise, actionable, and practical. Do not provide medical advice.
+
+Period Analyzed: {period_days} days
+Total Correlations Found: {len(correlations)}
+Actionable Correlations: {sum(1 for c in correlations if c.is_actionable)}
+
+Top Correlations:
+{json.dumps(corr_summary, indent=2)}
+
+Provide a response in this exact JSON format:
+{{
+    "summary": "A 2-3 sentence overall summary of the user's health relationships",
+    "key_findings": ["finding 1", "finding 2", "finding 3"],
+    "recommendations": ["recommendation 1", "recommendation 2", "recommendation 3"]
+}}
+
+Focus on:
+1. Patterns that can improve sleep or energy
+2. Exercise and nutrition relationships
+3. Predictive relationships (if metric A predicts metric B)
+
+Be supportive and constructive."""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception:
+            return self._generate_fallback_correlation_insights(correlations, period_days)
+    
+    def _build_correlation_context(self, correlation: Correlation) -> str:
+        """Build context string for correlation prompt."""
+        context_lines = [
+            f"- Metric A: {correlation.metric_a.replace('_', ' ').title()}",
+            f"- Metric B: {correlation.metric_b.replace('_', ' ').title()}",
+            f"- Correlation Type: {correlation.correlation_type.value}",
+            f"- Correlation Value: {correlation.correlation_value:.3f}",
+            f"- Strength: {correlation.strength.value}",
+        ]
+        
+        if correlation.lag_days > 0:
+            context_lines.append(f"- Time Lag: {correlation.lag_days} day(s)")
+            context_lines.append(f"  (Metric A on day T affects Metric B on day T+{correlation.lag_days})")
+        
+        if correlation.causal_direction:
+            direction = correlation.causal_direction.value
+            if direction == 'a_causes_b':
+                context_lines.append(f"- Causal Direction: {correlation.metric_a} → {correlation.metric_b}")
+            elif direction == 'b_causes_a':
+                context_lines.append(f"- Causal Direction: {correlation.metric_b} → {correlation.metric_a}")
+            elif direction == 'bidirectional':
+                context_lines.append("- Causal Direction: Bidirectional relationship")
+        
+        if correlation.percentile_rank:
+            context_lines.append(f"- Population Percentile: {correlation.percentile_rank}th")
+        
+        return "\n".join(context_lines)
+    
+    def _generate_fallback_correlation_insight(
+        self, 
+        correlation: Correlation
+    ) -> Dict[str, str]:
+        """Generate correlation insight without AI."""
+        metric_a = correlation.metric_a.replace('_', ' ').title()
+        metric_b = correlation.metric_b.replace('_', ' ').title()
+        
+        # Build insight based on correlation type and direction
+        if correlation.correlation_value > 0:
+            direction = "increase together"
+            recommendation_direction = "increasing"
+        else:
+            direction = "move in opposite directions"
+            recommendation_direction = "adjusting"
+        
+        if correlation.causal_direction and correlation.causal_direction.value == 'a_causes_b':
+            insight = f"Your {metric_a} appears to predict your {metric_b}. Higher {metric_a} tends to lead to changes in {metric_b}."
+        elif correlation.lag_days > 0:
+            insight = f"Your {metric_a} affects your {metric_b} about {correlation.lag_days} day(s) later. They {direction}."
+        else:
+            insight = f"Your {metric_a} and {metric_b} {direction}. This suggests they're connected in your daily patterns."
+        
+        recommendation = f"Consider tracking how {recommendation_direction} {metric_a} affects your {metric_b} over time."
+        
+        return {
+            'insight': insight,
+            'recommendation': recommendation
+        }
+    
+    def _generate_fallback_correlation_insights(
+        self,
+        correlations: List[Correlation],
+        period_days: int
+    ) -> Dict[str, Any]:
+        """Generate correlation insights summary without AI."""
+        from collections import Counter
+        
+        type_counts = Counter(c.correlation_type.value for c in correlations)
+        actionable = [c for c in correlations if c.is_actionable]
+        
+        # Generate summary
+        summary = (
+            f"Over the past {period_days} days, we found {len(correlations)} correlations between your health metrics. "
+            f"{len(actionable)} are strong enough to act on."
+        )
+        
+        # Generate findings
+        findings = []
+        for c in correlations[:3]:
+            metric_a = c.metric_a.replace('_', ' ')
+            metric_b = c.metric_b.replace('_', ' ')
+            direction = "positively" if c.correlation_value > 0 else "negatively"
+            findings.append(f"Your {metric_a} and {metric_b} are {direction} correlated")
+        
+        # Add Granger findings
+        granger_results = [c for c in correlations if c.correlation_type.value == 'granger_causality']
+        for c in granger_results[:2]:
+            findings.append(f"{c.metric_a.replace('_', ' ').title()} predicts {c.metric_b.replace('_', ' ')}")
+        
+        # Generate recommendations
+        recommendations = []
+        
+        # Check for exercise-sleep correlation
+        exercise_sleep = [c for c in correlations 
+                         if 'exercise' in c.metric_a and 'sleep' in c.metric_b]
+        if exercise_sleep and exercise_sleep[0].correlation_value > 0:
+            recommendations.append("Regular exercise appears to improve your sleep - aim for 30+ minutes daily")
+        
+        # Check for nutrition correlations
+        nutrition_corrs = [c for c in correlations if 'calorie' in c.metric_a or 'sugar' in c.metric_a]
+        if nutrition_corrs:
+            recommendations.append("Your nutrition choices show measurable impacts - track meal timing")
+        
+        recommendations.append("Focus on the actionable correlations to optimize your health patterns")
+        
+        return {
+            'summary': summary,
+            'key_findings': findings[:5],
+            'recommendations': recommendations[:3]
+        }

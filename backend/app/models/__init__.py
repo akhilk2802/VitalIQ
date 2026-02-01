@@ -7,6 +7,7 @@ from app.models.vital_signs import VitalSigns
 from app.models.body_metrics import BodyMetrics
 from app.models.chronic_metrics import ChronicMetrics
 from app.models.anomaly import Anomaly
+from app.models.correlation import Correlation
 
 __all__ = [
     "User",
@@ -17,4 +18,5 @@ __all__ = [
     "BodyMetrics",
     "ChronicMetrics",
     "Anomaly",
+    "Correlation",
 ]
