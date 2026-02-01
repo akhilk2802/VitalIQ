@@ -18,3 +18,4 @@ numpy==1.26.3
 scipy==1.12.0
 python-dotenv==1.0.0
 httpx==0.26.0
+reportlab==4.1.0reportlab==4.1.0

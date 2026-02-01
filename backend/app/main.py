@@ -5,7 +5,7 @@ import logging
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations, integrations
+from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations, integrations, briefing, query, export
 from app.services.scheduler import scheduler
 
 
@@ -63,6 +63,9 @@ app.include_router(correlations.router, prefix=f"{settings.API_V1_PREFIX}/correl
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["Dashboard"])
 app.include_router(mock.router, prefix=f"{settings.API_V1_PREFIX}/mock", tags=["Mock Data"])
 app.include_router(integrations.router, prefix=f"{settings.API_V1_PREFIX}/integrations", tags=["Integrations"])
+app.include_router(briefing.router, prefix=f"{settings.API_V1_PREFIX}/briefing", tags=["Morning Briefing"])
+app.include_router(query.router, prefix=f"{settings.API_V1_PREFIX}/query", tags=["Natural Language Query"])
+app.include_router(export.router, prefix=f"{settings.API_V1_PREFIX}/export", tags=["Data Export"])
 
 
 @app.get("/")

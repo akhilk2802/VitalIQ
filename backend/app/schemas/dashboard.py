@@ -47,6 +47,22 @@ class DashboardResponse(BaseModel):
     correlation_insights: List[str] = []
 
 
+class ScoreFactorDetail(BaseModel):
+    """Detailed factor breakdown for a score component"""
+    score: int
+    factors: List[str]
+    key_metric: Optional[str] = None
+    key_value: Optional[float] = None
+
+
+class HealthScoreBreakdown(BaseModel):
+    """Detailed breakdown of health score by category"""
+    sleep: ScoreFactorDetail
+    nutrition: ScoreFactorDetail
+    activity: ScoreFactorDetail
+    vitals: ScoreFactorDetail
+
+
 class HealthScore(BaseModel):
     overall_score: int  # 0-100
     sleep_score: int
@@ -54,4 +70,16 @@ class HealthScore(BaseModel):
     activity_score: int
     vitals_score: int
     trend: str  # "improving", "stable", "declining"
+    computed_at: datetime
+
+
+class HealthScoreDetailed(BaseModel):
+    """Enhanced health score with detailed breakdown"""
+    overall_score: int
+    breakdown: HealthScoreBreakdown
+    trend: str
+    comparison_to_last_week: Optional[int] = None  # Score difference
+    top_improvement_area: Optional[str] = None
+    top_strength_area: Optional[str] = None
+    insights: List[str] = []
     computed_at: datetime
