@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { mockApi, type PersonaType } from '@/api/mock'
 import { cn } from '@/lib/utils'
+import { useSettings } from '@/contexts/SettingsContext'
 import { GlassCard } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,6 +23,12 @@ import {
   Sparkles,
   Check,
   Info,
+  Brain,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Settings,
+  Lock,
 } from 'lucide-react'
 
 const CURRENT_PERSONA_KEY = 'vitaliq_current_persona'
@@ -57,6 +65,7 @@ const personaBgColors: Record<string, string> = {
 }
 
 export function MockDataPage() {
+  const { settings } = useSettings()
   const [selectedPersona, setSelectedPersona] = useState<PersonaType>('healthy_balanced')
   const [days, setDays] = useState(150)
   const [clearExisting, setClearExisting] = useState(true)
@@ -75,9 +84,53 @@ export function MockDataPage() {
     }
   }, [])
 
+  // Show access denied if mock data is not enabled
+  if (!settings.mockDataEnabled) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <GlassCard className="max-w-md p-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <Lock className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h1 className="text-xl font-semibold mb-2">Mock Data Disabled</h1>
+          <p className="text-muted-foreground mb-6">
+            The mock data generator is currently disabled. Enable it in Settings to access this feature for testing and development.
+          </p>
+          <Button asChild>
+            <Link to="/settings">
+              <Settings className="mr-2 h-4 w-4" />
+              Go to Settings
+            </Link>
+          </Button>
+        </GlassCard>
+      </div>
+    )
+  }
+
   const { data: personasData, isLoading: personasLoading } = useQuery({
     queryKey: ['mock', 'personas'],
     queryFn: () => mockApi.getPersonas(),
+  })
+
+  // RAG Status
+  const { data: ragStatus, isLoading: ragLoading, refetch: refetchRAG } = useQuery({
+    queryKey: ['mock', 'rag-status'],
+    queryFn: () => mockApi.getRAGStatus(),
+  })
+
+  const initRAGMutation = useMutation({
+    mutationFn: () => mockApi.initRAG(),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(result.message || 'AI Knowledge base initialized!')
+        refetchRAG()
+      } else {
+        toast.error(result.error || 'Failed to initialize')
+      }
+    },
+    onError: () => {
+      toast.error('Failed to initialize AI knowledge base')
+    },
   })
 
   const generateMutation = useMutation({
@@ -94,6 +147,15 @@ export function MockDataPage() {
         `Generated ${result.total_entries} entries for ${result.persona_name} persona`
       )
       
+      // Show RAG status if it was initialized
+      if (result.rag_status?.initialized) {
+        if (result.rag_status.already_populated) {
+          toast.info('AI Chat already initialized')
+        } else {
+          toast.success(`AI Chat initialized with ${result.rag_status.chunks_created || 0} knowledge chunks`)
+        }
+      }
+      
       // Store current persona info
       const personaInfo: StoredPersonaInfo = {
         id: selectedPersona,
@@ -104,7 +166,7 @@ export function MockDataPage() {
       localStorage.setItem(CURRENT_PERSONA_KEY, JSON.stringify(personaInfo))
       setCurrentPersona(personaInfo)
       
-      // Invalidate all queries to refresh dashboard and data viewer
+      // Invalidate all queries to refresh dashboard, data viewer, and RAG status
       queryClient.invalidateQueries()
     },
     onError: () => {
@@ -139,10 +201,11 @@ export function MockDataPage() {
         </p>
       </div>
 
-      {/* Current Persona Indicator */}
-      {currentPersona && (
-        <GlassCard className={cn('p-4', personaBgColors[currentPersona.id])}>
-          <div className="flex items-center justify-between">
+      {/* Status Cards Row */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Current Persona Indicator */}
+        {currentPersona && (
+          <GlassCard className={cn('p-4', personaBgColors[currentPersona.id])}>
             <div className="flex items-center gap-3">
               <div className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-lg',
@@ -150,23 +213,82 @@ export function MockDataPage() {
               )}>
                 {personaIcons[currentPersona.id] || <User className="h-5 w-5" />}
               </div>
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-muted-foreground">Current Persona:</span>
-                  <span className="font-semibold">{currentPersona.name}</span>
+                  <span className="text-xs font-medium text-muted-foreground">Current Persona:</span>
+                  <span className="font-semibold text-sm">{currentPersona.name}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {currentPersona.days} days of data • Generated {new Date(currentPersona.generatedAt).toLocaleDateString()}
+                  {currentPersona.days} days • {new Date(currentPersona.generatedAt).toLocaleDateString()}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Info className="h-4 w-4" />
-              <span>Using mock data</span>
+          </GlassCard>
+        )}
+
+        {/* AI Chat Status */}
+        <GlassCard className={cn(
+          'p-4',
+          ragStatus?.ready ? 'bg-exercise/5' : 'bg-muted/50'
+        )}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg',
+                ragStatus?.ready ? 'bg-exercise/10' : 'bg-muted'
+              )}>
+                <Brain className={cn(
+                  'h-5 w-5',
+                  ragStatus?.ready ? 'text-exercise' : 'text-muted-foreground'
+                )} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">AI Chat:</span>
+                  {ragLoading ? (
+                    <Skeleton className="h-4 w-16" />
+                  ) : ragStatus?.ready ? (
+                    <span className="flex items-center gap-1 text-sm font-medium text-exercise">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Ready
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+                      <XCircle className="h-3.5 w-3.5" />
+                      Not Ready
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {ragStatus?.knowledge_base?.total_chunks || 0} knowledge chunks
+                </p>
+              </div>
             </div>
+            {!ragStatus?.ready && ragStatus?.openai_configured && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => initRAGMutation.mutate()}
+                disabled={initRAGMutation.isPending}
+              >
+                {initRAGMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Initializing...
+                  </>
+                ) : (
+                  'Initialize'
+                )}
+              </Button>
+            )}
           </div>
+          {!ragStatus?.openai_configured && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              OpenAI API key not configured
+            </p>
+          )}
         </GlassCard>
-      )}
+      </div>
 
       {/* Configuration */}
       <GlassCard className="p-6">

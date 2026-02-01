@@ -42,9 +42,22 @@ export function HealthScoreRing({
   }
 
   const getTrendText = () => {
-    if (percentChange === undefined || percentChange === 0) return 'Stable'
-    const sign = percentChange > 0 ? '+' : ''
-    return `${sign}${percentChange.toFixed(1)}%`
+    // If we have a specific percent change, show it
+    if (percentChange !== undefined && percentChange !== 0) {
+      const sign = percentChange > 0 ? '+' : ''
+      return `${sign}${percentChange.toFixed(1)}%`
+    }
+    // Otherwise show text based on trend
+    switch (trend) {
+      case 'improving':
+        return 'Improving'
+      case 'declining':
+        return 'Needs attention'
+      case 'stable':
+        return 'Holding steady'
+      default:
+        return 'Building baseline'
+    }
   }
 
   if (isLoading) {

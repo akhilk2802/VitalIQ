@@ -128,7 +128,7 @@ class VectorService:
                 content,
                 entity_type,
                 entity_id,
-                metadata,
+                extra_metadata,
                 created_at,
                 1 - (embedding <=> '{embedding_str}'::vector) as similarity
             FROM user_history_embeddings
@@ -155,7 +155,7 @@ class VectorService:
                 "content": row.content,
                 "entity_type": row.entity_type,
                 "entity_id": str(row.entity_id) if row.entity_id else None,
-                "metadata": row.metadata,
+                "metadata": row.extra_metadata,
                 "similarity": float(row.similarity),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
             }
@@ -237,7 +237,7 @@ class VectorService:
             embedding=embedding,
             entity_type=entity_type,
             entity_id=entity_id,
-            metadata=metadata,
+            extra_metadata=metadata,
         )
         
         self.db.add(history_embedding)

@@ -1,9 +1,11 @@
 import { GlassCard } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Settings, Bell, Shield, Database, Download, Trash2 } from 'lucide-react'
+import { Settings, Bell, Shield, Database, Download, Trash2, Code } from 'lucide-react'
+import { useSettings } from '@/contexts/SettingsContext'
 
 export function SettingsPage() {
+  const { settings, toggleMockData } = useSettings()
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -58,6 +60,40 @@ export function SettingsPage() {
             description="Allow AI to analyze your health patterns for insights"
             defaultChecked={true}
           />
+        </div>
+      </GlassCard>
+
+      {/* Developer Mode */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Code className="h-5 w-5 text-muted-foreground" />
+          <h2 className="font-medium">Developer Mode</h2>
+        </div>
+        
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">Enable Mock Data</p>
+              <p className="text-sm text-muted-foreground">
+                Access mock data generator for testing and development
+              </p>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={settings.mockDataEnabled}
+                onChange={toggleMockData}
+                className="peer sr-only"
+              />
+              <div className="peer h-6 w-11 rounded-full bg-muted after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-muted-foreground after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:bg-primary-foreground"></div>
+            </label>
+          </div>
+          {settings.mockDataEnabled && (
+            <p className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
+              <Database className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />
+              Mock Data option is now visible in the sidebar. Use it to generate sample health data for testing.
+            </p>
+          )}
         </div>
       </GlassCard>
 

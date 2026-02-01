@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select, func
 from typing import Optional, List, Any
+from pathlib import Path
+import logging
 
 from app.database import get_db
 from app.models.user import User
@@ -16,6 +18,9 @@ from app.models.correlation import Correlation
 from app.utils.security import get_current_user
 from app.utils.mock_data import PersonaMockDataGenerator, PersonaType
 from app.utils.enums import ConditionType
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -61,6 +66,7 @@ async def generate_mock_data(
     include_diabetes: bool = Query(True, description="Include diabetes/glucose metrics"),
     include_heart: bool = Query(False, description="Include heart/cholesterol metrics"),
     clear_existing: bool = Query(False, description="Clear existing data before generating"),
+    init_rag: bool = Query(True, description="Initialize RAG knowledge base if empty"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -73,6 +79,8 @@ async def generate_mock_data(
     - Low sleep triggers next-day sugar cravings
     - Sugar intake correlates with post-meal glucose spikes
     - Stress (low HRV) correlates with poor sleep
+    
+    If init_rag=True (default), also ingests the health knowledge base for AI chat.
     """
     
     # Optionally clear existing data
@@ -151,6 +159,45 @@ async def generate_mock_data(
     
     await db.flush()
     
+    # Initialize RAG knowledge base if requested and OpenAI is configured
+    rag_status = None
+    if init_rag and settings.OPENAI_API_KEY:
+        try:
+            from app.rag.knowledge_ingestion import KnowledgeIngestionPipeline
+            
+            pipeline = KnowledgeIngestionPipeline(db)
+            
+            # Check if knowledge base is already populated
+            existing_stats = await pipeline.get_ingestion_stats()
+            total_existing = sum(existing_stats.values())
+            
+            if total_existing == 0:
+                # Ingest the curated knowledge base
+                kb_path = Path(__file__).parent.parent.parent / "knowledge_base"
+                if kb_path.exists():
+                    logger.info(f"Ingesting knowledge base from {kb_path}")
+                    stats = await pipeline.ingest_markdown_directory(kb_path)
+                    rag_status = {
+                        "initialized": True,
+                        "chunks_created": stats.get("chunks_created", 0),
+                        "files_processed": stats.get("files_processed", 0)
+                    }
+                else:
+                    rag_status = {"initialized": False, "error": "Knowledge base directory not found"}
+            else:
+                rag_status = {
+                    "initialized": True,
+                    "already_populated": True,
+                    "existing_chunks": total_existing
+                }
+            
+            await pipeline.close()
+        except Exception as e:
+            logger.warning(f"RAG initialization failed: {e}")
+            rag_status = {"initialized": False, "error": str(e)}
+    elif init_rag:
+        rag_status = {"initialized": False, "error": "OpenAI API key not configured"}
+    
     return {
         "message": "Mock data generated successfully",
         "persona": persona.value,
@@ -161,6 +208,7 @@ async def generate_mock_data(
         "anomaly_days": list(generator.anomaly_days),
         "embedded_patterns": generator.get_embedded_patterns(),
         "data_cleared": clear_existing,
+        "rag_status": rag_status,
     }
 
 
@@ -205,6 +253,116 @@ async def clear_all_data(
         "deleted_counts": counts,
         "total_deleted": sum(counts.values()),
     }
+
+
+@router.get("/rag-status")
+async def get_rag_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the status of the RAG system for AI chat.
+    Shows if knowledge base is populated and ready.
+    """
+    status = {
+        "openai_configured": bool(settings.OPENAI_API_KEY),
+        "knowledge_base": {"total_chunks": 0, "ready": False},
+        "user_history": {"total_embeddings": 0, "ready": False},
+    }
+    
+    if not settings.OPENAI_API_KEY:
+        status["message"] = "OpenAI API key not configured"
+        return status
+    
+    try:
+        from app.rag.knowledge_ingestion import KnowledgeIngestionPipeline
+        from app.rag.vector_service import VectorService
+        
+        pipeline = KnowledgeIngestionPipeline(db)
+        vector_service = VectorService(db)
+        
+        # Check knowledge base
+        kb_stats = await pipeline.get_ingestion_stats()
+        total_kb = sum(kb_stats.values())
+        status["knowledge_base"] = {
+            "total_chunks": total_kb,
+            "by_source": kb_stats,
+            "ready": total_kb > 0
+        }
+        
+        # Check user history
+        user_embeddings = await vector_service.count_user_history_embeddings(current_user.id)
+        status["user_history"] = {
+            "total_embeddings": user_embeddings,
+            "ready": user_embeddings > 0
+        }
+        
+        status["ready"] = total_kb > 0
+        status["message"] = "RAG ready" if total_kb > 0 else "Knowledge base empty - generate mock data to initialize"
+        
+        await pipeline.close()
+    except Exception as e:
+        logger.error(f"Error checking RAG status: {e}")
+        status["error"] = str(e)
+    
+    return status
+
+
+@router.post("/init-rag")
+async def initialize_rag(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually initialize the RAG knowledge base.
+    Ingests the curated health knowledge for AI chat.
+    """
+    if not settings.OPENAI_API_KEY:
+        return {
+            "success": False,
+            "error": "OpenAI API key not configured"
+        }
+    
+    try:
+        from app.rag.knowledge_ingestion import KnowledgeIngestionPipeline
+        
+        pipeline = KnowledgeIngestionPipeline(db)
+        
+        # Check if already populated
+        existing = await pipeline.get_ingestion_stats()
+        if sum(existing.values()) > 0:
+            await pipeline.close()
+            return {
+                "success": True,
+                "message": "Knowledge base already initialized",
+                "existing_chunks": sum(existing.values())
+            }
+        
+        # Ingest knowledge base
+        kb_path = Path(__file__).parent.parent.parent / "knowledge_base"
+        if not kb_path.exists():
+            await pipeline.close()
+            return {
+                "success": False,
+                "error": f"Knowledge base directory not found: {kb_path}"
+            }
+        
+        logger.info(f"Ingesting knowledge base from {kb_path}")
+        stats = await pipeline.ingest_markdown_directory(kb_path)
+        await db.commit()
+        await pipeline.close()
+        
+        return {
+            "success": True,
+            "message": "Knowledge base initialized successfully",
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"RAG initialization failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @router.get("/data-summary")

@@ -28,6 +28,14 @@ interface StoredJob {
   startedAt: string
 }
 
+// Map backend strength values to display categories
+const getStrengthCategory = (strength: string): 'strong' | 'moderate' | 'weak' | 'negligible' => {
+  if (strength.includes('strong')) return 'strong'
+  if (strength.includes('moderate')) return 'moderate'
+  if (strength.includes('weak')) return 'weak'
+  return 'negligible'
+}
+
 export function CorrelationsPage() {
   const [filter, setFilter] = useState<'all' | 'actionable'>('actionable')
   const [analysisProgress, setAnalysisProgress] = useState<{
@@ -161,10 +169,11 @@ export function CorrelationsPage() {
 
   const isAnalyzing = detectMutation.isPending || isPolling
 
+  // Group correlations by simplified strength category
   const strengthGroups = correlations?.reduce(
     (acc, c) => {
-      const strength = c.strength || 'unknown'
-      acc[strength] = [...(acc[strength] || []), c]
+      const category = getStrengthCategory(c.strength || '')
+      acc[category] = [...(acc[category] || []), c]
       return acc
     },
     {} as Record<string, Correlation[]>
@@ -257,32 +266,36 @@ export function CorrelationsPage() {
             </div>
           </div>
         </GlassCard>
-        {['very_strong', 'strong', 'moderate'].map((strength) => (
-          <GlassCard key={strength} className="p-4">
+        {[
+          { key: 'strong', label: 'Strong', color: 'exercise' },
+          { key: 'moderate', label: 'Moderate', color: 'primary' },
+          { key: 'weak', label: 'Weak', color: 'nutrition' },
+        ].map(({ key, label, color }) => (
+          <GlassCard key={key} className="p-4">
             <div className="flex items-center gap-3">
               <div
                 className={cn(
                   'flex h-10 w-10 items-center justify-center rounded-lg',
-                  strength === 'very_strong' && 'bg-exercise/10',
-                  strength === 'strong' && 'bg-primary/10',
-                  strength === 'moderate' && 'bg-nutrition/10'
+                  color === 'exercise' && 'bg-exercise/10',
+                  color === 'primary' && 'bg-primary/10',
+                  color === 'nutrition' && 'bg-nutrition/10'
                 )}
               >
                 <GitBranch
                   className={cn(
                     'h-5 w-5',
-                    strength === 'very_strong' && 'text-exercise',
-                    strength === 'strong' && 'text-primary',
-                    strength === 'moderate' && 'text-nutrition'
+                    color === 'exercise' && 'text-exercise',
+                    color === 'primary' && 'text-primary',
+                    color === 'nutrition' && 'text-nutrition'
                   )}
                 />
               </div>
               <div>
                 <p className="text-2xl font-bold">
-                  {strengthGroups?.[strength]?.length || 0}
+                  {strengthGroups?.[key]?.length || 0}
                 </p>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {strength.replace('_', ' ')}
+                <p className="text-xs text-muted-foreground">
+                  {label}
                 </p>
               </div>
             </div>
@@ -339,16 +352,23 @@ export function CorrelationsPage() {
 
 function CorrelationCard({ correlation }: { correlation: Correlation }) {
   const isPositive = correlation.correlation_value > 0
+  const strengthCategory = getStrengthCategory(correlation.strength || '')
 
   const strengthColors: Record<string, string> = {
     weak: 'text-muted-foreground',
     moderate: 'text-nutrition',
-    strong: 'text-primary',
-    very_strong: 'text-exercise',
+    strong: 'text-exercise',
+    negligible: 'text-muted-foreground',
   }
 
   const formatMetricName = (name: string) =>
     name
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+
+  // Format strength for display (e.g., "strong_positive" -> "Strong Positive")
+  const formatStrength = (strength: string) =>
+    strength
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase())
 
@@ -378,11 +398,11 @@ function CorrelationCard({ correlation }: { correlation: Correlation }) {
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
             <span
               className={cn(
-                'font-medium capitalize',
-                strengthColors[correlation.strength]
+                'font-medium',
+                strengthColors[strengthCategory]
               )}
             >
-              {correlation.strength.replace('_', ' ')}
+              {formatStrength(correlation.strength)}
             </span>
             <span className="text-muted-foreground">
               r = {correlation.correlation_value.toFixed(2)}
@@ -397,8 +417,8 @@ function CorrelationCard({ correlation }: { correlation: Correlation }) {
                 Causal
               </span>
             )}
-            <span className="text-xs text-muted-foreground">
-              {correlation.correlation_type.replace('_', ' ')}
+            <span className="text-xs text-muted-foreground capitalize">
+              {correlation.correlation_type?.replace(/_/g, ' ') || ''}
             </span>
           </div>
 

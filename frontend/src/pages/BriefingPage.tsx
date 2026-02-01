@@ -201,40 +201,52 @@ export function BriefingPage() {
           <h2 className="font-medium">Today's Recommendations</h2>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          {recommendations?.recommendations?.map((rec, i) => (
-            <div
-              key={i}
-              className={cn(
-                'rounded-lg p-4',
-                rec.priority === 'high' && 'bg-heart/10',
-                rec.priority === 'medium' && 'bg-nutrition/10',
-                rec.priority === 'low' && 'bg-muted'
-              )}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span
-                  className={cn(
-                    'text-xs font-medium uppercase',
-                    rec.priority === 'high' && 'text-heart',
-                    rec.priority === 'medium' && 'text-nutrition',
-                    rec.priority === 'low' && 'text-muted-foreground'
-                  )}
-                >
-                  {rec.type}
-                </span>
+        {recsLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="rounded-lg bg-muted/50 p-4 space-y-2">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-5 w-full" />
+                <Skeleton className="h-4 w-3/4" />
               </div>
-              <p className="text-sm font-medium">{rec.message}</p>
-              {rec.reasoning && (
-                <p className="mt-1 text-xs text-muted-foreground">{rec.reasoning}</p>
-              )}
-            </div>
-          )) || (
-            <p className="col-span-2 text-sm text-muted-foreground text-center py-4">
-              No recommendations available
-            </p>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : recommendations?.recommendations && recommendations.recommendations.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {recommendations.recommendations.map((rec, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'rounded-lg p-4',
+                  rec.priority === 'high' && 'bg-heart/10',
+                  rec.priority === 'medium' && 'bg-nutrition/10',
+                  rec.priority === 'low' && 'bg-muted'
+                )}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span
+                    className={cn(
+                      'text-xs font-medium uppercase',
+                      rec.priority === 'high' && 'text-heart',
+                      rec.priority === 'medium' && 'text-nutrition',
+                      rec.priority === 'low' && 'text-muted-foreground'
+                    )}
+                  >
+                    {rec.type}
+                  </span>
+                </div>
+                <p className="text-sm font-medium">{rec.message}</p>
+                {rec.reasoning && (
+                  <p className="mt-1 text-xs text-muted-foreground">{rec.reasoning}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No recommendations available
+          </p>
+        )}
       </GlassCard>
 
       {/* Alerts summary */}

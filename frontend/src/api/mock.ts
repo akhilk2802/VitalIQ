@@ -14,6 +14,35 @@ export interface GenerateMockParams {
   include_diabetes?: boolean
   include_heart?: boolean
   clear_existing?: boolean
+  init_rag?: boolean
+}
+
+export interface RAGStatus {
+  openai_configured: boolean
+  knowledge_base: {
+    total_chunks: number
+    by_source?: Record<string, number>
+    ready: boolean
+  }
+  user_history: {
+    total_embeddings: number
+    ready: boolean
+  }
+  ready: boolean
+  message?: string
+  error?: string
+}
+
+export interface RAGInitResult {
+  success: boolean
+  message?: string
+  error?: string
+  stats?: {
+    files_processed: number
+    chunks_created: number
+    errors: number
+  }
+  existing_chunks?: number
 }
 
 export const mockApi = {
@@ -30,6 +59,7 @@ export const mockApi = {
         include_diabetes: params.include_diabetes ?? true,
         include_heart: params.include_heart ?? false,
         clear_existing: params.clear_existing ?? false,
+        init_rag: params.init_rag ?? true,
       },
     })
     return response.data
@@ -42,6 +72,16 @@ export const mockApi = {
 
   getDataSummary: async (): Promise<DataSummary> => {
     const response = await apiClient.get<DataSummary>('/mock/data-summary')
+    return response.data
+  },
+
+  getRAGStatus: async (): Promise<RAGStatus> => {
+    const response = await apiClient.get<RAGStatus>('/mock/rag-status')
+    return response.data
+  },
+
+  initRAG: async (): Promise<RAGInitResult> => {
+    const response = await apiClient.post<RAGInitResult>('/mock/init-rag')
     return response.data
   },
 }

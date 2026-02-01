@@ -29,7 +29,7 @@ class ChatService:
     """Service for RAG-powered health conversations."""
     
     MODEL = "gpt-4-turbo-preview"
-    MAX_TOKENS = 800
+    MAX_TOKENS = 300  # Keep responses concise
     TEMPERATURE = 0.7
     
     def __init__(self, db: AsyncSession):
@@ -103,9 +103,55 @@ class ChatService:
     async def get_messages(
         self, 
         session_id: uuid.UUID,
+        limit: int = 100,
+        before_id: Optional[uuid.UUID] = None
+    ) -> tuple[List[ChatMessage], bool]:
+        """
+        Get messages for a session with cursor-based pagination.
+        
+        Args:
+            session_id: Session ID
+            limit: Max messages to return
+            before_id: Get messages before this message ID (for infinite scroll)
+            
+        Returns:
+            Tuple of (messages in chronological order, has_more flag)
+        """
+        query = select(ChatMessage).where(ChatMessage.session_id == session_id)
+        
+        if before_id:
+            # Get the message to use as cursor
+            cursor_result = await self.db.execute(
+                select(ChatMessage).where(ChatMessage.id == before_id)
+            )
+            cursor_msg = cursor_result.scalar_one_or_none()
+            
+            if cursor_msg:
+                # Get messages older than cursor
+                query = query.where(ChatMessage.created_at < cursor_msg.created_at)
+        
+        # Order by created_at DESC to get most recent first, then reverse
+        query = query.order_by(ChatMessage.created_at.desc()).limit(limit + 1)
+        
+        result = await self.db.execute(query)
+        messages = list(result.scalars().all())
+        
+        # Check if there are more messages
+        has_more = len(messages) > limit
+        if has_more:
+            messages = messages[:limit]
+        
+        # Reverse to chronological order
+        messages.reverse()
+        
+        return messages, has_more
+    
+    async def get_messages_simple(
+        self, 
+        session_id: uuid.UUID,
         limit: int = 100
     ) -> List[ChatMessage]:
-        """Get messages for a session."""
+        """Get messages for a session (simple, no pagination)."""
         result = await self.db.execute(
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
@@ -114,6 +160,22 @@ class ChatService:
         )
         return result.scalars().all()
     
+    async def update_session(
+        self,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID,
+        title: Optional[str] = None
+    ) -> Optional[ChatSession]:
+        """Update a session's properties."""
+        session = await self.get_session(session_id, user_id)
+        if session:
+            if title is not None:
+                session.title = title
+            session.updated_at = datetime.utcnow()
+            await self.db.flush()
+            return session
+        return None
+
     async def delete_session(
         self, 
         session_id: uuid.UUID, 
@@ -161,7 +223,7 @@ class ChatService:
         context = await self._gather_context(user_id, user_message)
         
         # Get conversation history
-        messages = await self.get_messages(session_id, limit=20)
+        messages = await self.get_messages_simple(session_id, limit=20)
         # Exclude the message we just added
         history = [m for m in messages if m.id != user_msg.id]
         
@@ -247,7 +309,7 @@ class ChatService:
         context = await self._gather_context(user_id, user_message)
         
         # Get conversation history
-        messages = await self.get_messages(session_id, limit=20)
+        messages = await self.get_messages_simple(session_id, limit=20)
         history = [m for m in messages if m.id != user_msg.id]
         
         # Build prompt

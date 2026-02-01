@@ -2,7 +2,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { NAV_ITEMS, NAV_ITEMS_SECONDARY, DATA_ENTRY_ITEMS } from '@/lib/constants'
+import { useSettings } from '@/contexts/SettingsContext'
+import { NAV_ITEMS, NAV_ITEMS_SECONDARY, DATA_ENTRY_ITEMS, MOCK_DATA_NAV_ITEM } from '@/lib/constants'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -47,6 +48,7 @@ const iconMap: Record<string, LucideIcon> = {
 export function Sidebar() {
   const { isCollapsed, toggleCollapsed } = useSidebar()
   const { user, logout } = useAuth()
+  const { settings } = useSettings()
   const location = useLocation()
   const [dataEntryOpen, setDataEntryOpen] = useState(false)
 
@@ -176,6 +178,31 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        {/* Mock Data - only shown when enabled in settings */}
+        {settings.mockDataEnabled && (
+          <>
+            {(() => {
+              const Icon = iconMap[MOCK_DATA_NAV_ITEM.icon]
+              return (
+                <Link
+                  to={MOCK_DATA_NAV_ITEM.path}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive(MOCK_DATA_NAV_ITEM.path)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    isCollapsed && 'justify-center px-2'
+                  )}
+                  title={isCollapsed ? MOCK_DATA_NAV_ITEM.label : undefined}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  {!isCollapsed && <span>{MOCK_DATA_NAV_ITEM.label}</span>}
+                </Link>
+              )
+            })()}
+          </>
+        )}
       </nav>
 
       {/* User profile section */}

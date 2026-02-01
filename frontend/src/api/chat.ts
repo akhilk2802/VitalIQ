@@ -5,6 +5,10 @@ export interface CreateSessionParams {
   title?: string
 }
 
+export interface UpdateSessionParams {
+  title?: string
+}
+
 export interface SendMessageParams {
   content: string
 }
@@ -17,6 +21,12 @@ export interface QuickInsightResponse {
   insight: string
   insight_type: string
   generated_at: string
+}
+
+export interface PaginatedMessagesResponse {
+  messages: ChatMessage[]
+  has_more: boolean
+  next_cursor: string | null
 }
 
 export const chatApi = {
@@ -38,15 +48,25 @@ export const chatApi = {
     return response.data
   },
 
+  updateSession: async (sessionId: string, params: UpdateSessionParams): Promise<ChatSession> => {
+    const response = await apiClient.patch<ChatSession>(`/chat/sessions/${sessionId}`, params)
+    return response.data
+  },
+
   deleteSession: async (sessionId: string): Promise<void> => {
     await apiClient.delete(`/chat/sessions/${sessionId}`)
   },
 
-  // Messages
-  getMessages: async (sessionId: string, limit: number = 100): Promise<ChatMessage[]> => {
-    const response = await apiClient.get<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`, {
-      params: { limit },
-    })
+  // Messages with pagination
+  getMessages: async (
+    sessionId: string, 
+    limit: number = 50,
+    before?: string
+  ): Promise<PaginatedMessagesResponse> => {
+    const response = await apiClient.get<PaginatedMessagesResponse>(
+      `/chat/sessions/${sessionId}/messages`,
+      { params: { limit, before } }
+    )
     return response.data
   },
 

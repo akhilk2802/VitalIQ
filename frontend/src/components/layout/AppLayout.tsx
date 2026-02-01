@@ -41,7 +41,7 @@ function AppLayoutContent() {
       </div>
 
       {/* Chat FAB & Drawer */}
-      <ChatFAB onClick={() => setChatOpen(true)} />
+      <ChatFAB onClick={() => setChatOpen(!chatOpen)} isOpen={chatOpen} />
       <ChatDrawer open={chatOpen} onOpenChange={setChatOpen} />
 
       {/* Command Palette */}

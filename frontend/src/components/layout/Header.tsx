@@ -10,8 +10,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Menu, Search, Bell, User, Settings, LogOut } from 'lucide-react'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Menu, Search, Bell, User, Settings, LogOut, AlertTriangle } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { anomaliesApi } from '@/api'
 
 interface HeaderProps {
   onOpenCommandPalette?: () => void
@@ -20,6 +27,15 @@ interface HeaderProps {
 export function Header({ onOpenCommandPalette }: HeaderProps) {
   const { user, logout } = useAuth()
   const { toggleMobile, isCollapsed } = useSidebar()
+
+  // Fetch recent anomalies for notification badge
+  const { data: anomalies } = useQuery({
+    queryKey: ['anomalies', 'recent', 5],
+    queryFn: () => anomaliesApi.getRecentAnomalies(5),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  const unacknowledgedCount = anomalies?.filter((a) => !a.is_acknowledged).length || 0
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur-xl lg:px-6">
@@ -62,12 +78,69 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
       </Button>
 
       {/* Notifications */}
-      <Button variant="ghost" size="icon" className="relative">
-        <Bell className="h-5 w-5" />
-        {/* Notification badge */}
-        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
-        <span className="sr-only">Notifications</span>
-      </Button>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon" className="relative">
+            <Bell className="h-5 w-5" />
+            {/* Notification badge - only show if there are unacknowledged anomalies */}
+            {unacknowledgedCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                {unacknowledgedCount > 9 ? '9+' : unacknowledgedCount}
+              </span>
+            )}
+            <span className="sr-only">Notifications</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-80" align="end">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium">Notifications</h4>
+              <Link
+                to="/alerts"
+                className="text-xs text-primary hover:underline"
+              >
+                View all
+              </Link>
+            </div>
+            {anomalies && anomalies.length > 0 ? (
+              <div className="space-y-2">
+                {anomalies.slice(0, 3).map((anomaly) => (
+                  <Link
+                    key={anomaly.id}
+                    to="/alerts"
+                    className="flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors"
+                  >
+                    <AlertTriangle
+                      className={`mt-0.5 h-4 w-4 shrink-0 ${
+                        anomaly.severity === 'high'
+                          ? 'text-destructive'
+                          : anomaly.severity === 'medium'
+                          ? 'text-yellow-500'
+                          : 'text-muted-foreground'
+                      }`}
+                    />
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {anomaly.metric_name.replace(/_/g, ' ')}
+                      </p>
+                      <p className="text-xs text-muted-foreground line-clamp-1">
+                        {anomaly.explanation || `Unusual ${anomaly.metric_name} detected`}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="py-6 text-center">
+                <Bell className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No new notifications
+                </p>
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
 
       {/* User menu */}
       <DropdownMenu>
