@@ -74,25 +74,25 @@ async def detect_anomalies(
         limit=100
     )
     
-    # Generate explanations if requested
+    # Generate explanations if requested (with rate limiting)
     if request.include_explanation and results:
-        insights_service = InsightsService()
+        insights_service = InsightsService(db)
         feature_eng = FeatureEngineer(db, current_user.id)
         baselines = await feature_eng.get_user_baselines(
             days=30, 
             use_robust=request.use_robust
         )
         
-        # Update explanations for new anomalies
-        for anomaly in all_anomalies:
-            if not anomaly.explanation:
-                explanation = await insights_service.generate_anomaly_explanation(
-                    anomaly, 
-                    baselines
-                )
-                anomaly.explanation = explanation
+        # Update explanations using optimized batch method with rate limiting
+        updated_count = await insights_service.update_anomaly_explanations(
+            anomalies=list(all_anomalies),
+            user_baselines=baselines,
+            max_concurrent=3  # Limit concurrent LLM calls
+        )
         
-        await db.flush()
+        if updated_count > 0:
+            await db.flush()
+            print(f"Generated {updated_count} anomaly explanations")
     
     return AnomalyDetectionResult(
         total_anomalies=len(all_anomalies),
@@ -151,7 +151,7 @@ async def get_insights(
     - Actionable recommendations
     """
     service = AnomalyService(db)
-    insights_service = InsightsService()
+    insights_service = InsightsService(db)  # Pass db for RAG support
     feature_eng = FeatureEngineer(db, current_user.id)
     
     # Get anomalies and baselines

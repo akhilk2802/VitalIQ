@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
+import asyncio
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,10 +9,15 @@ from app.config import settings
 from app.models.anomaly import Anomaly
 from app.models.correlation import Correlation
 from app.schemas.anomaly import InsightResponse
+from app.utils.rate_limiter import OpenAIRateLimiter
 
 
 class InsightsService:
-    """Service for generating AI-powered health insights with RAG support."""
+    """Service for generating AI-powered health insights with RAG support and rate limiting."""
+    
+    # Rate limiting settings for explanation generation
+    MAX_CONCURRENT_EXPLANATIONS = 3  # Max parallel LLM calls
+    DELAY_BETWEEN_EXPLANATIONS = 0.3  # Seconds between sequential calls
     
     def __init__(self, db: AsyncSession = None):
         self.db = db
@@ -19,6 +25,7 @@ class InsightsService:
         self._health_rag = None
         self._user_history_rag = None
         self._prompt_builder = None
+        self._rate_limiter = OpenAIRateLimiter.for_chat()
     
     @property
     def health_rag(self):
@@ -107,7 +114,7 @@ Provide a brief explanation (2-3 sentences) of:
 If the user has had similar anomalies before, mention that pattern.
 Do not provide medical advice. Keep it casual and supportive."""
 
-        try:
+        async def _call():
             response = await self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[{"role": "user", "content": prompt}],
@@ -115,7 +122,11 @@ Do not provide medical advice. Keep it casual and supportive."""
                 temperature=0.7,
             )
             return response.choices[0].message.content.strip()
+        
+        try:
+            return await self._rate_limiter.execute_with_retry(_call)
         except Exception as e:
+            print(f"Error generating anomaly explanation: {e}")
             return self._generate_fallback_explanation(anomaly)
     
     async def generate_insights_summary(
@@ -171,7 +182,7 @@ Provide a response in this exact JSON format:
 
 Focus on patterns across multiple anomalies. Be supportive and constructive."""
 
-        try:
+        async def _call():
             response = await self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[{"role": "user", "content": prompt}],
@@ -179,8 +190,10 @@ Focus on patterns across multiple anomalies. Be supportive and constructive."""
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
-            
-            result = json.loads(response.choices[0].message.content)
+            return json.loads(response.choices[0].message.content)
+        
+        try:
+            result = await self._rate_limiter.execute_with_retry(_call)
             
             return InsightResponse(
                 summary=result.get('summary', 'Analysis complete.'),
@@ -191,6 +204,7 @@ Focus on patterns across multiple anomalies. Be supportive and constructive."""
                 generated_at=datetime.utcnow()
             )
         except Exception as e:
+            print(f"Error generating insights summary: {e}")
             return self._generate_fallback_summary(anomalies, period_days)
     
     def _generate_fallback_explanation(self, anomaly: Anomaly) -> str:
@@ -248,18 +262,54 @@ Focus on patterns across multiple anomalies. Be supportive and constructive."""
         self,
         anomalies: List[Anomaly],
         user_baselines: dict,
+        max_concurrent: int = None
     ) -> int:
-        """Update explanations for anomalies that don't have one"""
+        """
+        Update explanations for anomalies that don't have one.
+        
+        Uses controlled concurrency to avoid rate limiting.
+        
+        Args:
+            anomalies: List of anomalies to update
+            user_baselines: User's baseline metrics
+            max_concurrent: Max concurrent LLM calls (default: 3)
+            
+        Returns:
+            Number of anomalies updated
+        """
+        max_concurrent = max_concurrent or self.MAX_CONCURRENT_EXPLANATIONS
+        
+        # Filter to anomalies needing explanations
+        needs_explanation = [a for a in anomalies if not a.explanation]
+        
+        if not needs_explanation:
+            return 0
+        
+        # Process with controlled concurrency using semaphore
+        semaphore = asyncio.Semaphore(max_concurrent)
         updated_count = 0
         
-        for anomaly in anomalies:
-            if not anomaly.explanation:
-                explanation = await self.generate_anomaly_explanation(
-                    anomaly, 
-                    user_baselines
-                )
-                anomaly.explanation = explanation
-                updated_count += 1
+        async def process_anomaly(anomaly: Anomaly, index: int):
+            nonlocal updated_count
+            async with semaphore:
+                # Add staggered delay to spread out requests
+                await asyncio.sleep(self.DELAY_BETWEEN_EXPLANATIONS * (index % max_concurrent))
+                
+                try:
+                    explanation = await self.generate_anomaly_explanation(
+                        anomaly, 
+                        user_baselines
+                    )
+                    anomaly.explanation = explanation
+                    updated_count += 1
+                except Exception as e:
+                    print(f"Failed to generate explanation for anomaly {anomaly.id}: {e}")
+        
+        # Process all anomalies with controlled concurrency
+        await asyncio.gather(*[
+            process_anomaly(anomaly, i) 
+            for i, anomaly in enumerate(needs_explanation)
+        ])
         
         return updated_count
     
@@ -291,7 +341,7 @@ Provide a response in this exact JSON format:
 
 Focus on practical lifestyle implications. Do not provide medical advice."""
 
-        try:
+        async def _call():
             response = await self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[{"role": "user", "content": prompt}],
@@ -299,9 +349,12 @@ Focus on practical lifestyle implications. Do not provide medical advice."""
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
-            
             return json.loads(response.choices[0].message.content)
-        except Exception:
+        
+        try:
+            return await self._rate_limiter.execute_with_retry(_call)
+        except Exception as e:
+            print(f"Error generating correlation insight: {e}")
             return self._generate_fallback_correlation_insight(correlation)
     
     async def generate_correlation_insights(
@@ -358,7 +411,7 @@ Focus on:
 
 Be supportive and constructive."""
 
-        try:
+        async def _call():
             response = await self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[{"role": "user", "content": prompt}],
@@ -366,9 +419,12 @@ Be supportive and constructive."""
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
-            
             return json.loads(response.choices[0].message.content)
-        except Exception:
+        
+        try:
+            return await self._rate_limiter.execute_with_retry(_call)
+        except Exception as e:
+            print(f"Error generating correlation insights: {e}")
             return self._generate_fallback_correlation_insights(correlations, period_days)
     
     def _build_correlation_context(self, correlation: Correlation) -> str:

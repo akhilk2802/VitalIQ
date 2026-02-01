@@ -22,11 +22,12 @@ from app.rag.user_history_rag import UserHistoryRAG
 from app.rag.prompt_builder import RAGPromptBuilder
 from app.ml.feature_engineering import FeatureEngineer
 from app.utils.enums import MessageRole
+from app.utils.rate_limiter import OpenAIRateLimiter
 from app.config import settings
 
 
 class ChatService:
-    """Service for RAG-powered health conversations."""
+    """Service for RAG-powered health conversations with rate limiting."""
     
     MODEL = "gpt-4-turbo-preview"
     MAX_TOKENS = 300  # Keep responses concise
@@ -38,6 +39,7 @@ class ChatService:
         self.health_rag = HealthKnowledgeRAG(db)
         self.user_history_rag = UserHistoryRAG(db)
         self.prompt_builder = RAGPromptBuilder()
+        self._rate_limiter = OpenAIRateLimiter.for_chat()
     
     # ==================== Session Management ====================
     
@@ -236,30 +238,33 @@ class ChatService:
             conversation_history=history[-10:] if history else None  # Last 10 messages
         )
         
-        # Generate streaming response
+        # Generate streaming response with rate limiting
         full_response = ""
         tokens_used = 0
         
+        # Use rate limiter's acquire for streaming (can't use execute_with_retry for streaming)
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=prompt_messages,
-                max_tokens=self.MAX_TOKENS,
-                temperature=self.TEMPERATURE,
-                stream=True
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    full_response += content
-                    yield content
+            async with await self._rate_limiter.acquire():
+                stream = await self.client.chat.completions.create(
+                    model=self.MODEL,
+                    messages=prompt_messages,
+                    max_tokens=self.MAX_TOKENS,
+                    temperature=self.TEMPERATURE,
+                    stream=True
+                )
                 
-                if chunk.usage:
-                    tokens_used = chunk.usage.total_tokens
+                async for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        full_response += content
+                        yield content
+                    
+                    if chunk.usage:
+                        tokens_used = chunk.usage.total_tokens
         
         except Exception as e:
-            error_msg = f"I encountered an error generating a response: {str(e)}"
+            print(f"Error in streaming response: {e}")
+            error_msg = "I encountered an error generating a response. Please try again."
             yield error_msg
             full_response = error_msg
         
@@ -321,19 +326,22 @@ class ChatService:
             conversation_history=history[-10:] if history else None
         )
         
-        try:
-            response = await self.client.chat.completions.create(
+        async def _call():
+            return await self.client.chat.completions.create(
                 model=self.MODEL,
                 messages=prompt_messages,
                 max_tokens=self.MAX_TOKENS,
                 temperature=self.TEMPERATURE
             )
-            
+        
+        try:
+            response = await self._rate_limiter.execute_with_retry(_call)
             assistant_response = response.choices[0].message.content
             tokens_used = response.usage.total_tokens if response.usage else 0
             
         except Exception as e:
-            assistant_response = f"I encountered an error generating a response: {str(e)}"
+            print(f"Error generating chat response: {e}")
+            assistant_response = "I encountered an error generating a response. Please try again."
             tokens_used = 0
         
         # Save assistant response
@@ -363,6 +371,9 @@ class ChatService:
         """
         Gather all RAG context for a message.
         
+        Uses savepoints to isolate failures - if context gathering fails,
+        it won't affect the main transaction (user message).
+        
         Args:
             user_id: User ID
             user_message: User's message
@@ -371,70 +382,71 @@ class ChatService:
             Dict with health_knowledge, user_history, recent_metrics
         """
         context = {}
+        recent_metric_names = []
         
-        # Get recent metrics
+        # Get recent metrics - use savepoint to isolate potential failures
         try:
-            feature_eng = FeatureEngineer(self.db, user_id)
-            df = await feature_eng.build_daily_feature_matrix(days=7)
-            
-            if not df.empty:
-                # Get latest values
-                latest = df.iloc[-1].to_dict()
-                # Remove non-metric columns
-                metrics = {k: v for k, v in latest.items() 
-                          if k not in ['date'] and v is not None and str(v) != 'nan'}
-                context["recent_metrics"] = metrics
-                recent_metric_names = list(metrics.keys())
-            else:
-                recent_metric_names = []
+            async with self.db.begin_nested():
+                feature_eng = FeatureEngineer(self.db, user_id)
+                df = await feature_eng.build_daily_feature_matrix(days=7)
+                
+                if not df.empty:
+                    # Get latest values
+                    latest = df.iloc[-1].to_dict()
+                    # Remove non-metric columns
+                    metrics = {k: v for k, v in latest.items() 
+                              if k not in ['date'] and v is not None and str(v) != 'nan'}
+                    context["recent_metrics"] = metrics
+                    recent_metric_names = list(metrics.keys())
         except Exception as e:
-            print(f"Error getting recent metrics: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
-            recent_metric_names = []
+            # Savepoint handles rollback automatically, main transaction is safe
+            print(f"Error getting recent metrics (non-fatal): {e}")
         
-        # Retrieve health knowledge
+        # Retrieve health knowledge - use savepoint to isolate potential failures
         try:
-            knowledge_chunks = await self.health_rag.retrieve_for_chat(
-                user_message=user_message,
-                recent_metrics=recent_metric_names,
-                k=4
-            )
-            
-            if knowledge_chunks:
-                context["health_knowledge"] = self.health_rag.format_chunks_for_prompt(
-                    knowledge_chunks, 
-                    max_tokens=1500
+            async with self.db.begin_nested():
+                knowledge_chunks = await self.health_rag.retrieve_for_chat(
+                    user_message=user_message,
+                    recent_metrics=recent_metric_names,
+                    k=4
                 )
-                # Store chunk sources for context_used
-                context["health_sources"] = [
-                    {"title": c.title, "source_type": c.source_type, "similarity": c.similarity}
-                    for c in knowledge_chunks
-                ]
+                
+                if knowledge_chunks:
+                    context["health_knowledge"] = self.health_rag.format_chunks_for_prompt(
+                        knowledge_chunks, 
+                        max_tokens=1500
+                    )
+                    # Store chunk sources for context_used
+                    context["health_sources"] = [
+                        {"title": c.title, "source_type": c.source_type, "similarity": c.similarity}
+                        for c in knowledge_chunks
+                    ]
         except Exception as e:
-            print(f"Error retrieving health knowledge: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
+            # Savepoint handles rollback automatically, main transaction is safe
+            print(f"Error retrieving health knowledge (non-fatal): {e}")
         
-        # Retrieve user history
+        # Retrieve user history - use savepoint to isolate potential failures
         try:
-            history_chunks = await self.user_history_rag.retrieve_relevant_history(
-                user_id=user_id,
-                query=user_message,
-                k=3
-            )
-            
-            if history_chunks:
-                context["user_history"] = self.user_history_rag.format_history_for_prompt(
-                    history_chunks,
-                    max_tokens=1000
+            async with self.db.begin_nested():
+                history_chunks = await self.user_history_rag.retrieve_relevant_history(
+                    user_id=user_id,
+                    query=user_message,
+                    k=3
                 )
-                # Store for context_used
-                context["history_refs"] = [
-                    {"entity_type": c.entity_type, "similarity": c.similarity}
-                    for c in history_chunks
-                ]
+                
+                if history_chunks:
+                    context["user_history"] = self.user_history_rag.format_history_for_prompt(
+                        history_chunks,
+                        max_tokens=1000
+                    )
+                    # Store for context_used
+                    context["history_refs"] = [
+                        {"entity_type": c.entity_type, "similarity": c.similarity}
+                        for c in history_chunks
+                    ]
         except Exception as e:
-            print(f"Error retrieving user history: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
+            # Savepoint handles rollback automatically, main transaction is safe
+            print(f"Error retrieving user history (non-fatal): {e}")
         
         return context
     

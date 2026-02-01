@@ -98,7 +98,7 @@ class AnomalyService:
         user_id: uuid.UUID, 
         anomalies: List[AnomalyResult]
     ) -> List[Anomaly]:
-        """Save detected anomalies to database"""
+        """Save detected anomalies to database with batch embedding indexing."""
         saved = []
         
         for anomaly_result in anomalies:
@@ -135,13 +135,14 @@ class AnomalyService:
         
         await self.db.flush()
         
-        # Index anomalies for RAG retrieval (in background)
-        for anomaly in saved:
+        # Index anomalies for RAG retrieval using efficient batch operation
+        if saved:
             try:
-                await self.user_history_rag.index_anomaly(anomaly)
+                stats = await self.user_history_rag.index_anomalies_batch(saved)
+                print(f"Indexed {stats['indexed']} anomalies, {stats['failed']} failed")
             except Exception as e:
                 # Don't fail the whole operation if indexing fails
-                print(f"Failed to index anomaly {anomaly.id}: {e}")
+                print(f"Failed to batch index anomalies: {e}")
         
         return saved
     
