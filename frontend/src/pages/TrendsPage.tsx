@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDashboard } from '@/hooks/useDashboard'
 import { ChartContainer, AreaChart, LineChart, BarChart } from '@/components/charts'
-import { TimeRangeTabs, CorrelationOverview } from '@/components/dashboard'
+import { TimeRangeTabs } from '@/components/dashboard'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function TrendsPage() {
@@ -29,7 +29,7 @@ export function TrendsPage() {
   const exerciseData = data?.daily_summaries?.map((d) => {
     const exercises = d.exercises || []
     return {
-    date: d.date,
+      date: d.date,
       value: exercises.reduce((sum, e) => sum + (e.duration_minutes || 0), 0),
       calories: exercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0),
     }
@@ -40,7 +40,7 @@ export function TrendsPage() {
     const vitals = d.vitals || []
     const firstVital = vitals[0]
     return {
-    date: d.date,
+      date: d.date,
       heart_rate: firstVital?.resting_heart_rate || 0,
       hrv: firstVital?.hrv_ms || 0,
     }
@@ -60,18 +60,13 @@ export function TrendsPage() {
       </div>
 
       {/* Metric tabs */}
-      <Tabs defaultValue="compare" className="space-y-6">
+      <Tabs defaultValue="sleep" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="compare">Compare All</TabsTrigger>
           <TabsTrigger value="sleep">Sleep</TabsTrigger>
           <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
           <TabsTrigger value="exercise">Exercise</TabsTrigger>
           <TabsTrigger value="vitals">Vitals</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="compare" className="space-y-6">
-          <CorrelationOverview days={timeRange} />
-        </TabsContent>
 
         <TabsContent value="sleep" className="space-y-6">
           <ChartContainer

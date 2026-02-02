@@ -28,10 +28,10 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AuthProvider>
           <SettingsProvider>
-            <TooltipProvider>
-              <App />
-              <Toaster position="bottom-right" />
-            </TooltipProvider>
+          <TooltipProvider>
+            <App />
+            <Toaster position="bottom-right" />
+          </TooltipProvider>
           </SettingsProvider>
         </AuthProvider>
       </BrowserRouter>
