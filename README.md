@@ -23,6 +23,51 @@ VitalIQ aggregates health data from wearables and health devices, detects anomal
 
 ---
 
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center"><b>Dashboard</b></td>
+    <td align="center"><b>Trends Overview</b></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/main-page.png" width="400"/></td>
+    <td><img src="./screenshots/trends.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Trends Detail</b></td>
+    <td align="center"><b>Correlations</b></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/trends2.png" width="400"/></td>
+    <td><img src="./screenshots/correlations.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Morning Briefing</b></td>
+    <td align="center"><b>AI Health Chat</b></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/briefs.png" width="400"/></td>
+    <td><img src="./screenshots/chat_with_ai.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Add Meal</b></td>
+    <td align="center"><b>Integrations</b></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/addmeal.png" width="400"/></td>
+    <td><img src="./screenshots/integrations.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><b>Settings</b></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="./screenshots/settings.png" width="400"/></td>
+  </tr>
+</table>
+
+---
+
 ## 🛠️ Tech Stack
 
 ### Frontend

@@ -58,7 +58,7 @@ class VectorService:
                 source_type,
                 source_id,
                 title,
-                metadata,
+                extra_metadata,
                 chunk_index,
                 created_at,
                 1 - (embedding <=> '{embedding_str}'::vector) as similarity
@@ -91,7 +91,7 @@ class VectorService:
                 "source_type": row.source_type,
                 "source_id": row.source_id,
                 "title": row.title,
-                "metadata": row.metadata,
+                "metadata": row.extra_metadata,
                 "chunk_index": row.chunk_index,
                 "similarity": float(row.similarity),
                 "created_at": row.created_at.isoformat() if row.created_at else None,

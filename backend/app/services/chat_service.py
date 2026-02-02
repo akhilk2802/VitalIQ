@@ -221,8 +221,17 @@ class ChatService:
             content=user_message
         )
         
-        # Gather RAG context
+        # Commit the message save to ensure clean transaction state
+        await self.db.commit()
+        
+        # Gather RAG context (may fail partially, that's OK)
         context = await self._gather_context(user_id, user_message)
+        
+        # Ensure clean transaction state after context gathering
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
         
         # Get conversation history
         messages = await self.get_messages_simple(session_id, limit=20)
@@ -310,8 +319,17 @@ class ChatService:
             content=user_message
         )
         
-        # Gather RAG context
+        # Commit the message save to ensure clean transaction state
+        await self.db.commit()
+        
+        # Gather RAG context (may fail partially, that's OK)
         context = await self._gather_context(user_id, user_message)
+        
+        # Ensure clean transaction state after context gathering
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
         
         # Get conversation history
         messages = await self.get_messages_simple(session_id, limit=20)
@@ -371,8 +389,8 @@ class ChatService:
         """
         Gather all RAG context for a message.
         
-        Uses savepoints to isolate failures - if context gathering fails,
-        it won't affect the main transaction (user message).
+        Each context retrieval is isolated - failures in one don't affect others.
+        If any DB operation fails, we skip that context and continue.
         
         Args:
             user_id: User ID
@@ -384,69 +402,78 @@ class ChatService:
         context = {}
         recent_metric_names = []
         
-        # Get recent metrics - use savepoint to isolate potential failures
+        # Get recent metrics
         try:
-            async with self.db.begin_nested():
-                feature_eng = FeatureEngineer(self.db, user_id)
-                df = await feature_eng.build_daily_feature_matrix(days=7)
-                
-                if not df.empty:
-                    # Get latest values
-                    latest = df.iloc[-1].to_dict()
-                    # Remove non-metric columns
-                    metrics = {k: v for k, v in latest.items() 
-                              if k not in ['date'] and v is not None and str(v) != 'nan'}
-                    context["recent_metrics"] = metrics
-                    recent_metric_names = list(metrics.keys())
+            feature_eng = FeatureEngineer(self.db, user_id)
+            df = await feature_eng.build_daily_feature_matrix(days=7)
+            
+            if not df.empty:
+                # Get latest values
+                latest = df.iloc[-1].to_dict()
+                # Remove non-metric columns
+                metrics = {k: v for k, v in latest.items() 
+                          if k not in ['date'] and v is not None and str(v) != 'nan'}
+                context["recent_metrics"] = metrics
+                recent_metric_names = list(metrics.keys())
         except Exception as e:
-            # Savepoint handles rollback automatically, main transaction is safe
             print(f"Error getting recent metrics (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
-        # Retrieve health knowledge - use savepoint to isolate potential failures
+        # Retrieve health knowledge (skip if no embeddings yet to avoid errors)
         try:
-            async with self.db.begin_nested():
-                knowledge_chunks = await self.health_rag.retrieve_for_chat(
-                    user_message=user_message,
-                    recent_metrics=recent_metric_names,
-                    k=4
+            knowledge_chunks = await self.health_rag.retrieve_for_chat(
+                user_message=user_message,
+                recent_metrics=recent_metric_names,
+                k=4
+            )
+            
+            if knowledge_chunks:
+                context["health_knowledge"] = self.health_rag.format_chunks_for_prompt(
+                    knowledge_chunks, 
+                    max_tokens=1500
                 )
-                
-                if knowledge_chunks:
-                    context["health_knowledge"] = self.health_rag.format_chunks_for_prompt(
-                        knowledge_chunks, 
-                        max_tokens=1500
-                    )
-                    # Store chunk sources for context_used
-                    context["health_sources"] = [
-                        {"title": c.title, "source_type": c.source_type, "similarity": c.similarity}
-                        for c in knowledge_chunks
-                    ]
+                # Store chunk sources for context_used
+                context["health_sources"] = [
+                    {"title": c.title, "source_type": c.source_type, "similarity": c.similarity}
+                    for c in knowledge_chunks
+                ]
         except Exception as e:
-            # Savepoint handles rollback automatically, main transaction is safe
             print(f"Error retrieving health knowledge (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
-        # Retrieve user history - use savepoint to isolate potential failures
+        # Retrieve user history
         try:
-            async with self.db.begin_nested():
-                history_chunks = await self.user_history_rag.retrieve_relevant_history(
-                    user_id=user_id,
-                    query=user_message,
-                    k=3
+            history_chunks = await self.user_history_rag.retrieve_relevant_history(
+                user_id=user_id,
+                query=user_message,
+                k=3
+            )
+            
+            if history_chunks:
+                context["user_history"] = self.user_history_rag.format_history_for_prompt(
+                    history_chunks,
+                    max_tokens=1000
                 )
-                
-                if history_chunks:
-                    context["user_history"] = self.user_history_rag.format_history_for_prompt(
-                        history_chunks,
-                        max_tokens=1000
-                    )
-                    # Store for context_used
-                    context["history_refs"] = [
-                        {"entity_type": c.entity_type, "similarity": c.similarity}
-                        for c in history_chunks
-                    ]
+                # Store for context_used
+                context["history_refs"] = [
+                    {"entity_type": c.entity_type, "similarity": c.similarity}
+                    for c in history_chunks
+                ]
         except Exception as e:
-            # Savepoint handles rollback automatically, main transaction is safe
             print(f"Error retrieving user history (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
         return context
     
