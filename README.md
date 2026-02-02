@@ -6,6 +6,11 @@ VitalIQ aggregates health data from wearables and health devices, detects anomal
 
 ![Tech Stack](https://img.shields.io/badge/React-19-blue) ![Tech Stack](https://img.shields.io/badge/FastAPI-0.109-green) ![Tech Stack](https://img.shields.io/badge/PostgreSQL-pgvector-blue) ![Tech Stack](https://img.shields.io/badge/OpenAI-GPT--4-purple)
 
+## 🎥 Project Demo
+
+- **Part 1 (5 mins):** [Watch on Vimeo](https://vimeo.com/1160885695?share=copy&fl=sv&fe=ci) - *Overview & Core Features*
+- **Part 2 (2 mins):** [Watch on Vimeo](https://vimeo.com/1160885760?share=copy&fl=sv&fe=ci) - *AI Chat & RAG Integration*
+
 📖 **[View Full Design Document](./DESIGN_DOC.md)** — Detailed architecture, data flow, ML pipeline, and RAG system documentation.
 
 ---
