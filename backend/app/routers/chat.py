@@ -7,7 +7,7 @@ Provides:
 - Quick insights
 """
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,10 +20,12 @@ from app.services.chat_service import ChatService
 from app.utils.security import get_current_user
 from app.schemas.chat import (
     ChatSessionCreate,
+    ChatSessionUpdate,
     ChatSessionResponse,
     ChatSessionWithMessages,
     ChatMessageCreate,
     ChatMessageResponse,
+    PaginatedMessagesResponse,
     QuickInsightRequest,
     QuickInsightResponse
 )
@@ -82,6 +84,8 @@ async def get_chat_sessions(
         limit=limit
     )
     
+    # Note: message_count is not loaded here to avoid lazy loading issues in async context
+    # Use get_chat_session endpoint to get message count for a specific session
     return [
         ChatSessionResponse(
             id=s.id,
@@ -90,7 +94,7 @@ async def get_chat_sessions(
             is_active=s.is_active,
             created_at=s.created_at,
             updated_at=s.updated_at,
-            message_count=len(s.messages) if hasattr(s, 'messages') else None
+            message_count=None  # Not loaded in list view for performance
         )
         for s in sessions
     ]
@@ -114,7 +118,7 @@ async def get_chat_session(
             detail="Chat session not found"
         )
     
-    messages = await chat_service.get_messages(session_id)
+    messages = await chat_service.get_messages_simple(session_id)
     
     return ChatSessionWithMessages(
         id=session.id,
@@ -136,6 +140,43 @@ async def get_chat_session(
             )
             for m in messages
         ]
+    )
+
+
+@router.patch("/sessions/{session_id}", response_model=ChatSessionResponse)
+async def update_chat_session(
+    session_id: UUID,
+    update_data: ChatSessionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a chat session (e.g., rename it).
+    """
+    chat_service = ChatService(db)
+    
+    session = await chat_service.update_session(
+        session_id=session_id,
+        user_id=current_user.id,
+        title=update_data.title
+    )
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat session not found"
+        )
+    
+    await db.commit()
+    
+    return ChatSessionResponse(
+        id=session.id,
+        user_id=session.user_id,
+        title=session.title,
+        is_active=session.is_active,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        message_count=None
     )
 
 
@@ -164,15 +205,19 @@ async def delete_chat_session(
 
 # ==================== Message Endpoints ====================
 
-@router.get("/sessions/{session_id}/messages", response_model=List[ChatMessageResponse])
+@router.get("/sessions/{session_id}/messages", response_model=PaginatedMessagesResponse)
 async def get_session_messages(
     session_id: UUID,
-    limit: int = 100,
+    limit: int = 50,
+    before: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get messages for a chat session.
+    Get messages for a chat session with cursor-based pagination.
+    
+    - Use `before` param to load older messages (infinite scroll up)
+    - Messages are returned in chronological order (oldest first)
     """
     chat_service = ChatService(db)
     
@@ -184,20 +229,31 @@ async def get_session_messages(
             detail="Chat session not found"
         )
     
-    messages = await chat_service.get_messages(session_id, limit=limit)
+    messages, has_more = await chat_service.get_messages(
+        session_id, 
+        limit=limit, 
+        before_id=before
+    )
     
-    return [
-        ChatMessageResponse(
-            id=m.id,
-            session_id=m.session_id,
-            role=m.role.value,
-            content=m.content,
-            context_used=m.context_used,
-            tokens_used=m.tokens_used,
-            created_at=m.created_at
-        )
-        for m in messages
-    ]
+    # The next cursor is the ID of the oldest message in the current batch
+    next_cursor = messages[0].id if messages and has_more else None
+    
+    return PaginatedMessagesResponse(
+        messages=[
+            ChatMessageResponse(
+                id=m.id,
+                session_id=m.session_id,
+                role=m.role.value,
+                content=m.content,
+                context_used=m.context_used,
+                tokens_used=m.tokens_used,
+                created_at=m.created_at
+            )
+            for m in messages
+        ],
+        has_more=has_more,
+        next_cursor=next_cursor
+    )
 
 
 @router.post("/sessions/{session_id}/messages", response_model=ChatMessageResponse)
@@ -239,7 +295,7 @@ async def send_message(
     await db.commit()
     
     # Get the saved messages (user message + assistant response)
-    messages = await chat_service.get_messages(session_id, limit=2)
+    messages = await chat_service.get_messages_simple(session_id, limit=2)
     
     # Return the assistant's response
     assistant_msg = messages[-1] if messages else None

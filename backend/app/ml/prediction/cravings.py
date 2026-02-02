@@ -346,8 +346,9 @@ class CravingsPredictor:
         
         # Low sleep trigger
         if sleep_data:
-            sleep_hours = sleep_data.get("duration_hours", 7)
-            baseline_sleep = self._baselines.get("sleep_hours", 7)
+            # Convert to float to handle Decimal from DB
+            sleep_hours = float(sleep_data.get("duration_hours", 7) or 7)
+            baseline_sleep = float(self._baselines.get("sleep_hours", 7) or 7)
             if sleep_hours < 6:
                 triggers["low_sleep"] = min(1.0, (6 - sleep_hours) / 3)
             elif sleep_hours < baseline_sleep - 1:
@@ -359,10 +360,11 @@ class CravingsPredictor:
         
         # Low HRV (stress) trigger
         if hrv_data and hrv_data.get("hrv_ms"):
-            hrv = hrv_data["hrv_ms"]
-            baseline_hrv = self._baselines.get("hrv_ms", 45)
+            # Convert to float to handle Decimal from DB
+            hrv = float(hrv_data["hrv_ms"])
+            baseline_hrv = float(self._baselines.get("hrv_ms", 45) or 45)
             if hrv < baseline_hrv * 0.8:
-                triggers["low_hrv"] = min(1.0, (baseline_hrv - hrv) / baseline_hrv)
+                triggers["low_hrv"] = min(1.0, (baseline_hrv - hrv) / baseline_hrv) if baseline_hrv > 0 else 0.5
             else:
                 triggers["low_hrv"] = 0.1
         else:
@@ -372,8 +374,9 @@ class CravingsPredictor:
         triggers["stress"] = (triggers["low_sleep"] + triggers["low_hrv"]) / 2
         
         # Low activity trigger
-        avg_activity = activity_data.get("avg_daily_minutes", 0)
-        baseline_activity = self._baselines.get("exercise_minutes", 30)
+        # Convert to float to handle Decimal from DB
+        avg_activity = float(activity_data.get("avg_daily_minutes", 0) or 0)
+        baseline_activity = float(self._baselines.get("exercise_minutes", 30) or 30)
         if avg_activity < 15:
             triggers["low_activity"] = 0.7
         elif avg_activity < baseline_activity * 0.5:
@@ -383,19 +386,19 @@ class CravingsPredictor:
         
         # High activity trigger (for carb cravings)
         if avg_activity > baseline_activity * 1.5:
-            triggers["high_activity"] = min(1.0, avg_activity / (baseline_activity * 2))
+            triggers["high_activity"] = min(1.0, avg_activity / (baseline_activity * 2)) if baseline_activity > 0 else 0.1
         else:
             triggers["high_activity"] = 0.1
         
         # Carb cycle trigger (recent low carbs)
-        avg_carbs = nutrition_data.get("avg_daily_carbs", 150)
+        avg_carbs = float(nutrition_data.get("avg_daily_carbs", 150) or 150)
         if avg_carbs < 100:
             triggers["carb_cycle"] = min(1.0, (100 - avg_carbs) / 100)
         else:
             triggers["carb_cycle"] = 0.1
         
         # Dehydration proxy (high activity + low meals)
-        meals_per_day = nutrition_data.get("meals_per_day", 3)
+        meals_per_day = float(nutrition_data.get("meals_per_day", 3) or 3)
         if meals_per_day < 2.5 and avg_activity > 30:
             triggers["dehydration"] = 0.5
         else:
@@ -427,7 +430,7 @@ class CravingsPredictor:
         
         # Adjust for specific patterns
         if craving_type == "sugar" and sleep_data:
-            if sleep_data.get("duration_hours", 7) < 5:
+            if float(sleep_data.get("duration_hours", 7) or 7) < 5:
                 likelihood = min(1.0, likelihood + 0.3)
         
         # Determine intensity

@@ -63,10 +63,12 @@ class ConnectRequest(BaseModel):
 class ConnectResponse(BaseModel):
     """Response with link URL for OAuth flow"""
     connection_id: str
-    link_url: str
-    link_token: str
-    expires_at: str
+    link_url: Optional[str] = None  # None in mock mode
+    link_token: Optional[str] = None  # None in mock mode
+    expires_at: Optional[str] = None  # None in mock mode
     provider: str
+    mock_mode: bool = False
+    message: Optional[str] = None
 
 
 class DisconnectResponse(BaseModel):

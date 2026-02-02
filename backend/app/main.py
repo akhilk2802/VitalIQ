@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.config import settings
 from app.database import init_db, AsyncSessionLocal
-from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations, integrations, briefing, query, export, chat
+from app.routers import auth, nutrition, sleep, exercise, vitals, body, chronic, anomalies, dashboard, mock, correlations, integrations, briefing, query, export, chat, rag
 from app.services.scheduler import scheduler
 from app.services.chat_service import ChatService
 from app.utils.security import decode_token
@@ -71,6 +71,7 @@ app.include_router(briefing.router, prefix=f"{settings.API_V1_PREFIX}/briefing",
 app.include_router(query.router, prefix=f"{settings.API_V1_PREFIX}/query", tags=["Natural Language Query"])
 app.include_router(export.router, prefix=f"{settings.API_V1_PREFIX}/export", tags=["Data Export"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}", tags=["Chat"])
+app.include_router(rag.router, prefix=f"{settings.API_V1_PREFIX}", tags=["RAG Management"])
 
 
 @app.get("/")

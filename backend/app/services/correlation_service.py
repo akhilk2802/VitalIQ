@@ -20,17 +20,8 @@ from app.utils.enums import CorrelationType, CorrelationStrength
 class CorrelationService:
     """Service for correlation detection and management."""
     
-    def __init__(self, db: AsyncSession, user_history_rag=None):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self._user_history_rag = user_history_rag
-    
-    @property
-    def user_history_rag(self):
-        """Lazy-load UserHistoryRAG to avoid circular imports."""
-        if self._user_history_rag is None:
-            from app.rag.user_history_rag import UserHistoryRAG
-            self._user_history_rag = UserHistoryRAG(self.db)
-        return self._user_history_rag
     
     async def detect_correlations(
         self,
@@ -42,7 +33,8 @@ class CorrelationService:
         include_mutual_info: bool = True,
         include_population_comparison: bool = True,
         min_confidence: float = 0.3,
-        save_results: bool = True
+        save_results: bool = True,
+        max_results: int = 5
     ) -> List[CorrelationResult]:
         """
         Run full correlation detection pipeline.
@@ -57,15 +49,31 @@ class CorrelationService:
             include_population_comparison: Add population stats
             min_confidence: Minimum confidence to save
             save_results: Whether to persist to database
+            max_results: Maximum number of correlations to return (default: 5)
         
         Returns:
-            List of detected correlations
+            List of detected correlations (top N by confidence)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Build feature matrix
         feature_eng = FeatureEngineer(self.db, user.id)
         daily_df = await feature_eng.build_daily_feature_matrix(days=days)
         
+        logger.info(f"Feature matrix shape: {daily_df.shape}, columns: {list(daily_df.columns)}")
+        
+        # Count rows with actual data (not all NaN)
+        non_null_rows = daily_df.dropna(how='all', subset=[c for c in daily_df.columns if c != 'date']).shape[0]
+        logger.info(f"Rows with data: {non_null_rows}")
+        
         if daily_df.empty or len(daily_df) < 14:
+            logger.warning(f"Not enough data for correlation analysis. DataFrame shape: {daily_df.shape}")
+            return []
+        
+        # Check if we have enough non-null data
+        if non_null_rows < 14:
+            logger.warning(f"Not enough non-null rows for correlation analysis: {non_null_rows}")
             return []
         
         # Compute period
@@ -88,6 +96,10 @@ class CorrelationService:
         
         # Filter by minimum confidence
         results = [r for r in results if r.confidence >= min_confidence]
+        
+        # Sort by confidence and limit to max_results
+        results = sorted(results, key=lambda x: x.confidence, reverse=True)
+        results = results[:max_results]
         
         # Add population comparison
         if include_population_comparison and results:
@@ -150,13 +162,8 @@ class CorrelationService:
         
         await self.db.flush()
         
-        # Index correlations for RAG retrieval
-        for correlation in saved:
-            try:
-                await self.user_history_rag.index_correlation(correlation)
-            except Exception as e:
-                # Don't fail the whole operation if indexing fails
-                print(f"Failed to index correlation {correlation.id}: {e}")
+        # RAG indexing disabled for correlation detection to avoid rate limiting
+        # RAG is still available for AI chat features
         
         return saved
     

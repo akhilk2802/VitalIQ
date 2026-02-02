@@ -22,14 +22,15 @@ from app.rag.user_history_rag import UserHistoryRAG
 from app.rag.prompt_builder import RAGPromptBuilder
 from app.ml.feature_engineering import FeatureEngineer
 from app.utils.enums import MessageRole
+from app.utils.rate_limiter import OpenAIRateLimiter
 from app.config import settings
 
 
 class ChatService:
-    """Service for RAG-powered health conversations."""
+    """Service for RAG-powered health conversations with rate limiting."""
     
     MODEL = "gpt-4-turbo-preview"
-    MAX_TOKENS = 800
+    MAX_TOKENS = 300  # Keep responses concise
     TEMPERATURE = 0.7
     
     def __init__(self, db: AsyncSession):
@@ -38,6 +39,7 @@ class ChatService:
         self.health_rag = HealthKnowledgeRAG(db)
         self.user_history_rag = UserHistoryRAG(db)
         self.prompt_builder = RAGPromptBuilder()
+        self._rate_limiter = OpenAIRateLimiter.for_chat()
     
     # ==================== Session Management ====================
     
@@ -103,9 +105,55 @@ class ChatService:
     async def get_messages(
         self, 
         session_id: uuid.UUID,
+        limit: int = 100,
+        before_id: Optional[uuid.UUID] = None
+    ) -> tuple[List[ChatMessage], bool]:
+        """
+        Get messages for a session with cursor-based pagination.
+        
+        Args:
+            session_id: Session ID
+            limit: Max messages to return
+            before_id: Get messages before this message ID (for infinite scroll)
+            
+        Returns:
+            Tuple of (messages in chronological order, has_more flag)
+        """
+        query = select(ChatMessage).where(ChatMessage.session_id == session_id)
+        
+        if before_id:
+            # Get the message to use as cursor
+            cursor_result = await self.db.execute(
+                select(ChatMessage).where(ChatMessage.id == before_id)
+            )
+            cursor_msg = cursor_result.scalar_one_or_none()
+            
+            if cursor_msg:
+                # Get messages older than cursor
+                query = query.where(ChatMessage.created_at < cursor_msg.created_at)
+        
+        # Order by created_at DESC to get most recent first, then reverse
+        query = query.order_by(ChatMessage.created_at.desc()).limit(limit + 1)
+        
+        result = await self.db.execute(query)
+        messages = list(result.scalars().all())
+        
+        # Check if there are more messages
+        has_more = len(messages) > limit
+        if has_more:
+            messages = messages[:limit]
+        
+        # Reverse to chronological order
+        messages.reverse()
+        
+        return messages, has_more
+    
+    async def get_messages_simple(
+        self, 
+        session_id: uuid.UUID,
         limit: int = 100
     ) -> List[ChatMessage]:
-        """Get messages for a session."""
+        """Get messages for a session (simple, no pagination)."""
         result = await self.db.execute(
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
@@ -114,6 +162,22 @@ class ChatService:
         )
         return result.scalars().all()
     
+    async def update_session(
+        self,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID,
+        title: Optional[str] = None
+    ) -> Optional[ChatSession]:
+        """Update a session's properties."""
+        session = await self.get_session(session_id, user_id)
+        if session:
+            if title is not None:
+                session.title = title
+            session.updated_at = datetime.utcnow()
+            await self.db.flush()
+            return session
+        return None
+
     async def delete_session(
         self, 
         session_id: uuid.UUID, 
@@ -157,11 +221,20 @@ class ChatService:
             content=user_message
         )
         
-        # Gather RAG context
+        # Commit the message save to ensure clean transaction state
+        await self.db.commit()
+        
+        # Gather RAG context (may fail partially, that's OK)
         context = await self._gather_context(user_id, user_message)
         
+        # Ensure clean transaction state after context gathering
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
+        
         # Get conversation history
-        messages = await self.get_messages(session_id, limit=20)
+        messages = await self.get_messages_simple(session_id, limit=20)
         # Exclude the message we just added
         history = [m for m in messages if m.id != user_msg.id]
         
@@ -174,30 +247,33 @@ class ChatService:
             conversation_history=history[-10:] if history else None  # Last 10 messages
         )
         
-        # Generate streaming response
+        # Generate streaming response with rate limiting
         full_response = ""
         tokens_used = 0
         
+        # Use rate limiter's acquire for streaming (can't use execute_with_retry for streaming)
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=prompt_messages,
-                max_tokens=self.MAX_TOKENS,
-                temperature=self.TEMPERATURE,
-                stream=True
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    full_response += content
-                    yield content
+            async with await self._rate_limiter.acquire():
+                stream = await self.client.chat.completions.create(
+                    model=self.MODEL,
+                    messages=prompt_messages,
+                    max_tokens=self.MAX_TOKENS,
+                    temperature=self.TEMPERATURE,
+                    stream=True
+                )
                 
-                if chunk.usage:
-                    tokens_used = chunk.usage.total_tokens
+                async for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        full_response += content
+                        yield content
+                    
+                    if chunk.usage:
+                        tokens_used = chunk.usage.total_tokens
         
         except Exception as e:
-            error_msg = f"I encountered an error generating a response: {str(e)}"
+            print(f"Error in streaming response: {e}")
+            error_msg = "I encountered an error generating a response. Please try again."
             yield error_msg
             full_response = error_msg
         
@@ -243,11 +319,20 @@ class ChatService:
             content=user_message
         )
         
-        # Gather RAG context
+        # Commit the message save to ensure clean transaction state
+        await self.db.commit()
+        
+        # Gather RAG context (may fail partially, that's OK)
         context = await self._gather_context(user_id, user_message)
         
+        # Ensure clean transaction state after context gathering
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
+        
         # Get conversation history
-        messages = await self.get_messages(session_id, limit=20)
+        messages = await self.get_messages_simple(session_id, limit=20)
         history = [m for m in messages if m.id != user_msg.id]
         
         # Build prompt
@@ -259,19 +344,22 @@ class ChatService:
             conversation_history=history[-10:] if history else None
         )
         
-        try:
-            response = await self.client.chat.completions.create(
+        async def _call():
+            return await self.client.chat.completions.create(
                 model=self.MODEL,
                 messages=prompt_messages,
                 max_tokens=self.MAX_TOKENS,
                 temperature=self.TEMPERATURE
             )
-            
+        
+        try:
+            response = await self._rate_limiter.execute_with_retry(_call)
             assistant_response = response.choices[0].message.content
             tokens_used = response.usage.total_tokens if response.usage else 0
             
         except Exception as e:
-            assistant_response = f"I encountered an error generating a response: {str(e)}"
+            print(f"Error generating chat response: {e}")
+            assistant_response = "I encountered an error generating a response. Please try again."
             tokens_used = 0
         
         # Save assistant response
@@ -301,6 +389,9 @@ class ChatService:
         """
         Gather all RAG context for a message.
         
+        Each context retrieval is isolated - failures in one don't affect others.
+        If any DB operation fails, we skip that context and continue.
+        
         Args:
             user_id: User ID
             user_message: User's message
@@ -309,6 +400,7 @@ class ChatService:
             Dict with health_knowledge, user_history, recent_metrics
         """
         context = {}
+        recent_metric_names = []
         
         # Get recent metrics
         try:
@@ -323,14 +415,15 @@ class ChatService:
                           if k not in ['date'] and v is not None and str(v) != 'nan'}
                 context["recent_metrics"] = metrics
                 recent_metric_names = list(metrics.keys())
-            else:
-                recent_metric_names = []
         except Exception as e:
-            print(f"Error getting recent metrics: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
-            recent_metric_names = []
+            print(f"Error getting recent metrics (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
-        # Retrieve health knowledge
+        # Retrieve health knowledge (skip if no embeddings yet to avoid errors)
         try:
             knowledge_chunks = await self.health_rag.retrieve_for_chat(
                 user_message=user_message,
@@ -349,8 +442,12 @@ class ChatService:
                     for c in knowledge_chunks
                 ]
         except Exception as e:
-            print(f"Error retrieving health knowledge: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
+            print(f"Error retrieving health knowledge (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
         # Retrieve user history
         try:
@@ -371,8 +468,12 @@ class ChatService:
                     for c in history_chunks
                 ]
         except Exception as e:
-            print(f"Error retrieving user history: {e}")
-            await self.db.rollback()  # Rollback to clear aborted transaction state
+            print(f"Error retrieving user history (non-fatal): {e}")
+            # Rollback if transaction is in a bad state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         
         return context
     

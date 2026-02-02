@@ -11,6 +11,11 @@ class ChatSessionCreate(BaseModel):
     title: Optional[str] = Field(None, max_length=255, description="Optional session title")
 
 
+class ChatSessionUpdate(BaseModel):
+    """Schema for updating a chat session."""
+    title: Optional[str] = Field(None, max_length=255, description="New session title")
+
+
 class ChatSessionResponse(BaseModel):
     """Schema for chat session response."""
     id: UUID
@@ -47,6 +52,13 @@ class ChatMessageResponse(BaseModel):
 class ChatSessionWithMessages(ChatSessionResponse):
     """Schema for session with messages."""
     messages: List[ChatMessageResponse] = []
+
+
+class PaginatedMessagesResponse(BaseModel):
+    """Schema for paginated messages response."""
+    messages: List[ChatMessageResponse]
+    has_more: bool = False
+    next_cursor: Optional[UUID] = None  # ID of oldest message for next page
 
 
 class ChatStreamChunk(BaseModel):

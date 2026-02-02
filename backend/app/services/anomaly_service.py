@@ -16,17 +16,8 @@ from app.ml.detectors.base import AnomalyResult
 class AnomalyService:
     """Service for anomaly detection and management"""
     
-    def __init__(self, db: AsyncSession, user_history_rag=None):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self._user_history_rag = user_history_rag
-    
-    @property
-    def user_history_rag(self):
-        """Lazy-load UserHistoryRAG to avoid circular imports."""
-        if self._user_history_rag is None:
-            from app.rag.user_history_rag import UserHistoryRAG
-            self._user_history_rag = UserHistoryRAG(self.db)
-        return self._user_history_rag
     
     async def detect_anomalies(
         self,
@@ -36,6 +27,7 @@ class AnomalyService:
         use_robust: bool = True,
         use_adaptive: bool = True,
         use_ewma_baseline: bool = False,
+        max_results: int = 5,
     ) -> List[AnomalyResult]:
         """
         Run full anomaly detection pipeline with improved baseline calculation.
@@ -47,9 +39,10 @@ class AnomalyService:
             use_robust: Use median/IQR instead of mean/std (resistant to outliers)
             use_adaptive: Dynamically adjust thresholds based on data characteristics
             use_ewma_baseline: Use recent-weighted (EWMA) baseline instead of simple average
+            max_results: Maximum number of anomalies to return (default: 5)
         
         Returns:
-            List of detected anomalies
+            List of detected anomalies (top N by score)
         """
         # Build feature matrix
         feature_eng = FeatureEngineer(self.db, user.id)
@@ -87,6 +80,10 @@ class AnomalyService:
         ensemble = AnomalyEnsemble()
         combined_results = ensemble.combine(zscore_results, iforest_results)
         
+        # Sort by anomaly score (highest first) and limit to max_results
+        combined_results = sorted(combined_results, key=lambda x: x.anomaly_score, reverse=True)
+        combined_results = combined_results[:max_results]
+        
         # Save to database if requested
         if save_results and combined_results:
             await self._save_anomalies(user.id, combined_results)
@@ -98,7 +95,7 @@ class AnomalyService:
         user_id: uuid.UUID, 
         anomalies: List[AnomalyResult]
     ) -> List[Anomaly]:
-        """Save detected anomalies to database"""
+        """Save detected anomalies to database with batch embedding indexing."""
         saved = []
         
         for anomaly_result in anomalies:
@@ -135,13 +132,8 @@ class AnomalyService:
         
         await self.db.flush()
         
-        # Index anomalies for RAG retrieval (in background)
-        for anomaly in saved:
-            try:
-                await self.user_history_rag.index_anomaly(anomaly)
-            except Exception as e:
-                # Don't fail the whole operation if indexing fails
-                print(f"Failed to index anomaly {anomaly.id}: {e}")
+        # RAG indexing disabled for anomaly detection to avoid rate limiting
+        # RAG is still available for AI chat features
         
         return saved
     

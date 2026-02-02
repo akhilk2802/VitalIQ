@@ -450,9 +450,162 @@ class UserHistoryRAG:
     
     # ==================== Bulk Operations ====================
     
+    async def index_anomalies_batch(
+        self, 
+        anomalies: List[Anomaly]
+    ) -> Dict[str, int]:
+        """
+        Index multiple anomalies efficiently using batch embedding.
+        
+        This is much more efficient than calling index_anomaly() for each anomaly
+        as it batches the embedding generation into fewer API calls.
+        
+        Args:
+            anomalies: List of anomalies to index
+            
+        Returns:
+            Dict with 'indexed' count and 'failed' count
+        """
+        if not anomalies:
+            return {"indexed": 0, "failed": 0}
+        
+        stats = {"indexed": 0, "failed": 0}
+        
+        # Build content for all anomalies
+        valid_anomalies = []
+        contents = []
+        
+        for anomaly in anomalies:
+            content = self._build_anomaly_content(anomaly)
+            if content:
+                valid_anomalies.append(anomaly)
+                contents.append(content)
+        
+        if not contents:
+            return stats
+        
+        try:
+            # Generate all embeddings in batch
+            embeddings = await self.embedding_service.generate_embeddings_batch(contents)
+            
+            # Store each embedding
+            for anomaly, content, embedding in zip(valid_anomalies, contents, embeddings):
+                try:
+                    # Build metadata
+                    metadata = {
+                        "date": str(anomaly.date),
+                        "metric_name": anomaly.metric_name,
+                        "metric_value": anomaly.metric_value,
+                        "baseline_value": anomaly.baseline_value,
+                        "severity": anomaly.severity.value if anomaly.severity else None,
+                        "detector_type": anomaly.detector_type.value if anomaly.detector_type else None,
+                    }
+                    
+                    # Delete any existing embedding for this anomaly
+                    await self.vector_service.delete_user_history_embeddings(
+                        user_id=anomaly.user_id,
+                        entity_type=HistoryEntityType.anomaly,
+                        entity_id=anomaly.id
+                    )
+                    
+                    # Create new embedding
+                    await self.vector_service.upsert_user_history_embedding(
+                        user_id=anomaly.user_id,
+                        content=content,
+                        embedding=embedding,
+                        entity_type=HistoryEntityType.anomaly,
+                        entity_id=anomaly.id,
+                        metadata=metadata
+                    )
+                    stats["indexed"] += 1
+                except Exception as e:
+                    print(f"Failed to store embedding for anomaly {anomaly.id}: {e}")
+                    stats["failed"] += 1
+                    
+        except Exception as e:
+            print(f"Failed to generate batch embeddings: {e}")
+            stats["failed"] = len(valid_anomalies)
+        
+        return stats
+    
+    async def index_correlations_batch(
+        self, 
+        correlations: List[Correlation]
+    ) -> Dict[str, int]:
+        """
+        Index multiple correlations efficiently using batch embedding.
+        
+        Args:
+            correlations: List of correlations to index
+            
+        Returns:
+            Dict with 'indexed' count and 'failed' count
+        """
+        if not correlations:
+            return {"indexed": 0, "failed": 0}
+        
+        stats = {"indexed": 0, "failed": 0}
+        
+        # Build content for all correlations
+        valid_correlations = []
+        contents = []
+        
+        for correlation in correlations:
+            content = self._build_correlation_content(correlation)
+            if content:
+                valid_correlations.append(correlation)
+                contents.append(content)
+        
+        if not contents:
+            return stats
+        
+        try:
+            # Generate all embeddings in batch
+            embeddings = await self.embedding_service.generate_embeddings_batch(contents)
+            
+            # Store each embedding
+            for correlation, content, embedding in zip(valid_correlations, contents, embeddings):
+                try:
+                    metadata = {
+                        "metric_a": correlation.metric_a,
+                        "metric_b": correlation.metric_b,
+                        "correlation_type": correlation.correlation_type.value,
+                        "correlation_value": correlation.correlation_value,
+                        "strength": correlation.strength.value if correlation.strength else None,
+                        "lag_days": correlation.lag_days,
+                        "period_start": str(correlation.period_start),
+                        "period_end": str(correlation.period_end),
+                    }
+                    
+                    # Delete existing
+                    await self.vector_service.delete_user_history_embeddings(
+                        user_id=correlation.user_id,
+                        entity_type=HistoryEntityType.correlation,
+                        entity_id=correlation.id
+                    )
+                    
+                    await self.vector_service.upsert_user_history_embedding(
+                        user_id=correlation.user_id,
+                        content=content,
+                        embedding=embedding,
+                        entity_type=HistoryEntityType.correlation,
+                        entity_id=correlation.id,
+                        metadata=metadata
+                    )
+                    stats["indexed"] += 1
+                except Exception as e:
+                    print(f"Failed to store embedding for correlation {correlation.id}: {e}")
+                    stats["failed"] += 1
+                    
+        except Exception as e:
+            print(f"Failed to generate batch embeddings: {e}")
+            stats["failed"] = len(valid_correlations)
+        
+        return stats
+    
     async def reindex_user_history(self, user_id: uuid.UUID) -> Dict[str, int]:
         """
-        Reindex all history for a user.
+        Reindex all history for a user using efficient batch operations.
         
         Useful for rebuilding embeddings after model updates.
         
@@ -464,25 +617,25 @@ class UserHistoryRAG:
         """
         stats = {"anomalies": 0, "correlations": 0}
         
-        # Reindex anomalies
+        # Reindex anomalies using batch method
         anomaly_result = await self.db.execute(
             select(Anomaly).where(Anomaly.user_id == user_id)
         )
         anomalies = anomaly_result.scalars().all()
         
-        for anomaly in anomalies:
-            if await self.index_anomaly(anomaly):
-                stats["anomalies"] += 1
+        if anomalies:
+            anomaly_stats = await self.index_anomalies_batch(list(anomalies))
+            stats["anomalies"] = anomaly_stats["indexed"]
         
-        # Reindex correlations
+        # Reindex correlations using batch method
         correlation_result = await self.db.execute(
             select(Correlation).where(Correlation.user_id == user_id)
         )
         correlations = correlation_result.scalars().all()
         
-        for correlation in correlations:
-            if await self.index_correlation(correlation):
-                stats["correlations"] += 1
+        if correlations:
+            corr_stats = await self.index_correlations_batch(list(correlations))
+            stats["correlations"] = corr_stats["indexed"]
         
         await self.db.commit()
         return stats

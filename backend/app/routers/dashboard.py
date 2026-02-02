@@ -214,7 +214,10 @@ def _calculate_vitals_score(df, baselines, anomaly_summary) -> int:
 
 def _calculate_trend(df) -> str:
     """Determine if health metrics are improving, stable, or declining"""
-    if len(df) < 14:
+    import pandas as pd
+    
+    # Need at least 4 days to calculate a meaningful trend
+    if len(df) < 4:
         return "stable"
     
     # Compare first half vs second half
@@ -225,33 +228,76 @@ def _calculate_trend(df) -> str:
     improvements = 0
     declines = 0
     
-    # Check sleep
+    # Check sleep (more sleep is generally better, up to a point)
     if 'sleep_hours' in df.columns:
         first_sleep = first_half['sleep_hours'].mean()
         second_sleep = second_half['sleep_hours'].mean()
-        if first_sleep and second_sleep:
-            if second_sleep > first_sleep * 1.05:
+        if pd.notna(first_sleep) and pd.notna(second_sleep) and first_sleep > 0:
+            change_pct = (second_sleep - first_sleep) / first_sleep
+            if change_pct > 0.03:  # 3% improvement
                 improvements += 1
-            elif second_sleep < first_sleep * 0.95:
+            elif change_pct < -0.03:  # 3% decline
                 declines += 1
     
-    # Check exercise
+    # Check sleep quality
+    if 'sleep_quality' in df.columns:
+        first_quality = first_half['sleep_quality'].mean()
+        second_quality = second_half['sleep_quality'].mean()
+        if pd.notna(first_quality) and pd.notna(second_quality) and first_quality > 0:
+            change_pct = (second_quality - first_quality) / first_quality
+            if change_pct > 0.05:
+                improvements += 1
+            elif change_pct < -0.05:
+                declines += 1
+    
+    # Check exercise (more is generally better)
     if 'exercise_minutes' in df.columns:
         first_exercise = first_half['exercise_minutes'].sum()
         second_exercise = second_half['exercise_minutes'].sum()
-        if second_exercise > first_exercise * 1.1:
-            improvements += 1
-        elif second_exercise < first_exercise * 0.9:
-            declines += 1
+        if pd.notna(first_exercise) and pd.notna(second_exercise):
+            if first_exercise > 0:
+                change_pct = (second_exercise - first_exercise) / first_exercise
+                if change_pct > 0.05:
+                    improvements += 1
+                elif change_pct < -0.05:
+                    declines += 1
+            elif second_exercise > 0:
+                # Started exercising when there was none before
+                improvements += 1
     
     # Check resting HR (lower is generally better)
     if 'resting_hr' in df.columns:
         first_hr = first_half['resting_hr'].mean()
         second_hr = second_half['resting_hr'].mean()
-        if first_hr and second_hr:
-            if second_hr < first_hr * 0.95:
+        if pd.notna(first_hr) and pd.notna(second_hr) and first_hr > 0:
+            change_pct = (second_hr - first_hr) / first_hr
+            if change_pct < -0.02:  # HR decreased (improvement)
                 improvements += 1
-            elif second_hr > first_hr * 1.05:
+            elif change_pct > 0.02:  # HR increased (decline)
+                declines += 1
+    
+    # Check HRV (higher is generally better - indicates better recovery)
+    if 'hrv' in df.columns:
+        first_hrv = first_half['hrv'].mean()
+        second_hrv = second_half['hrv'].mean()
+        if pd.notna(first_hrv) and pd.notna(second_hrv) and first_hrv > 0:
+            change_pct = (second_hrv - first_hrv) / first_hrv
+            if change_pct > 0.05:  # HRV increased (improvement)
+                improvements += 1
+            elif change_pct < -0.05:  # HRV decreased (decline)
+                declines += 1
+    
+    # Check nutrition balance (moderate change threshold)
+    if 'total_calories' in df.columns:
+        first_cal = first_half['total_calories'].mean()
+        second_cal = second_half['total_calories'].mean()
+        # If calories are more consistent (less variance), that's good
+        first_var = first_half['total_calories'].std() if len(first_half) > 1 else 0
+        second_var = second_half['total_calories'].std() if len(second_half) > 1 else 0
+        if pd.notna(first_var) and pd.notna(second_var) and first_var > 0:
+            if second_var < first_var * 0.8:  # More consistent
+                improvements += 1
+            elif second_var > first_var * 1.2:  # Less consistent
                 declines += 1
     
     if improvements > declines:

@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 5% 20%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 5% 15%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5% 15%;
+    --input: 240 5% 15%;
+    --ring: 217 91% 60%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Glassmorphism card style */
+.glass-card {
+  @apply bg-card/70 backdrop-blur-xl border border-white/[0.08] rounded-2xl;
+}
+
+/* Metric card hover effect */
+.metric-card {
+  @apply glass-card transition-all duration-200 hover:border-white/[0.15] hover:scale-[1.02];
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+
+/* Custom animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-slide-in-from-right {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+.animate-slide-in-from-left {
+  animation: slide-in-from-left 0.3s ease-out;
+}
+
+.animate-slide-in-from-bottom {
+  animation: slide-in-from-bottom 0.3s ease-out;
+}
+
+/* Health Score Ring Animation */
+@keyframes health-score-fill {
+  from {
+    stroke-dashoffset: 283;
+  }
+}
+
+.health-score-ring {
+  animation: health-score-fill 1s ease-out forwards;
+}
+
+/* Number counter animation */
+@keyframes count-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-count {
+  animation: count-up 0.5s ease-out forwards;
+}
+
+/* Semantic color utilities */
+.text-sleep { color: #60a5fa; }
+.text-exercise { color: #4ade80; }
+.text-nutrition { color: #fb923c; }
+.text-heart { color: #f87171; }
+.text-body { color: #a78bfa; }
+.text-glucose { color: #facc15; }
+.text-hrv { color: #2dd4bf; }
+.text-recovery { color: #818cf8; }
+
+.bg-sleep { background-color: #60a5fa; }
+.bg-exercise { background-color: #4ade80; }
+.bg-nutrition { background-color: #fb923c; }
+.bg-heart { background-color: #f87171; }
+.bg-body { background-color: #a78bfa; }
+.bg-glucose { background-color: #facc15; }
+.bg-hrv { background-color: #2dd4bf; }
+.bg-recovery { background-color: #818cf8; }
+
+.bg-sleep\/10 { background-color: rgba(96, 165, 250, 0.1); }
+.bg-exercise\/10 { background-color: rgba(74, 222, 128, 0.1); }
+.bg-nutrition\/10 { background-color: rgba(251, 146, 60, 0.1); }
+.bg-heart\/10 { background-color: rgba(248, 113, 113, 0.1); }
+.bg-body\/10 { background-color: rgba(167, 139, 250, 0.1); }
+.bg-glucose\/10 { background-color: rgba(250, 204, 21, 0.1); }
+.bg-hrv\/10 { background-color: rgba(45, 212, 191, 0.1); }
+.bg-recovery\/10 { background-color: rgba(129, 140, 248, 0.1); }
+
+/* Tabular numbers for metrics */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

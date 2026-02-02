@@ -20,29 +20,20 @@ from app.utils.enums import MessageRole
 class RAGPromptBuilder:
     """Builds context-rich prompts for RAG-powered chat responses."""
     
-    SYSTEM_PROMPT = """You are VitalIQ's health assistant, an AI that helps users understand their personal health data and patterns.
+    SYSTEM_PROMPT = """You are VitalIQ, a concise health assistant. Help users understand their health data.
 
-YOUR CAPABILITIES:
-- Analyze and explain the user's health metrics (sleep, exercise, nutrition, vitals)
-- Explain detected anomalies and correlations in their data
-- Provide evidence-based health information
-- Offer practical lifestyle suggestions based on their patterns
+RULES:
+- NEVER diagnose or recommend medications
+- Recommend doctors for medical concerns
+- Reference user's actual data when available
+- Be honest if unsure
 
-RULES YOU MUST FOLLOW:
-1. NEVER provide medical diagnoses or treatment recommendations
-2. NEVER tell users to start, stop, or change medications
-3. Always recommend consulting a healthcare provider for medical concerns
-4. Be specific to the user's data when context is provided
-5. Cite health knowledge sources when relevant
-6. If you don't know something, say so honestly
-7. Keep responses concise but informative
-8. Be supportive and non-judgmental
-
-RESPONSE STYLE:
-- Use clear, simple language
-- Break down complex concepts
-- Be encouraging and constructive
-- Focus on actionable insights"""
+RESPONSE FORMAT:
+- Keep answers SHORT (2-4 sentences for simple questions)
+- Use bullet points for lists
+- Only elaborate if specifically asked
+- Skip unnecessary pleasantries and filler
+- Get straight to the point"""
 
     MAX_CONTEXT_TOKENS = 3000
     MAX_HISTORY_TOKENS = 1500
@@ -212,20 +203,12 @@ RESPONSE STYLE:
         direction = "higher" if metric_value > baseline_value else "lower"
         metric_display = metric_name.replace("_", " ").title()
         
-        user_prompt = f"""Please explain this health anomaly for the user:
+        user_prompt = f"""Explain this anomaly briefly:
 
-Metric: {metric_display}
-Recorded Value: {metric_value}
-User's Typical Value: {baseline_value}
-Deviation: {direction} than usual
+{metric_display}: {metric_value} (usual: {baseline_value}, {direction})
 Severity: {severity}
 
-Provide:
-1. A brief explanation of what this means (1-2 sentences)
-2. Possible lifestyle factors that could cause this
-3. Whether any action is recommended
-
-Keep it friendly and non-alarming. Don't provide medical advice."""
+Reply in 2-3 short sentences: what it means and one possible cause. No medical advice."""
 
         return [
             {"role": "system", "content": system_content},
@@ -276,18 +259,11 @@ Keep it friendly and non-alarming. Don't provide medical advice."""
         elif causal_direction == "b_causes_a":
             relationship += f". {metric_b_display} appears to influence {metric_a_display}."
         
-        user_prompt = f"""Please explain this correlation found in the user's health data:
+        user_prompt = f"""Explain this correlation briefly:
 
-{relationship}
-Correlation Value: {correlation_value:.3f}
-Correlation Type: {correlation_type}
+{relationship} (r={correlation_value:.2f})
 
-Provide:
-1. A clear explanation of what this relationship means
-2. How the user can use this insight to improve their health
-3. A specific, actionable recommendation
-
-Keep it practical and encouraging."""
+In 2-3 sentences: what this means and one actionable tip."""
 
         return [
             {"role": "system", "content": system_content},
@@ -321,20 +297,15 @@ Keep it practical and encouraging."""
         
         findings_text = "\n".join(f"- {f}" for f in key_findings) if key_findings else "None specific"
         
-        user_prompt = f"""Generate a brief health insights summary for the user based on their data from the past {period_days} days:
+        user_prompt = f"""Summarize health insights from past {period_days} days:
 
-Anomalies Detected: {anomaly_count}
-Correlations Found: {correlation_count}
+Anomalies: {anomaly_count} | Correlations: {correlation_count}
+Findings: {findings_text}
 
-Key Findings:
-{findings_text}
-
-Provide:
-1. A 2-3 sentence overview of their health patterns
-2. 3 key findings (bullet points)
-3. 2-3 actionable recommendations
-
-Focus on patterns and be constructive."""
+Reply with:
+- 1 sentence overview
+- Top 2 findings (bullets)
+- 1 actionable tip"""
 
         return [
             {"role": "system", "content": system_content},
