@@ -28,7 +28,7 @@ class AnomalyResponse(BaseModel):
 
 class AnomalyDetectionRequest(BaseModel):
     days: int = 60  # Number of days to analyze
-    include_explanation: bool = True  # Whether to generate LLM explanations
+    include_explanation: bool = False  # Whether to generate LLM explanations (default False to save tokens)
     # Improved baseline settings
     use_robust: bool = True  # Use median/IQR instead of mean/std (resistant to outliers)
     use_adaptive: bool = True  # Dynamically adjust thresholds based on data variance

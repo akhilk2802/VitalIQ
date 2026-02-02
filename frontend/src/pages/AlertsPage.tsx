@@ -37,7 +37,7 @@ export function AlertsPage() {
     mutationFn: () =>
       anomaliesApi.detectAnomalies({
         days: 30,
-        include_explanation: true,
+        include_explanation: false,
         use_robust: true,
         use_adaptive: true,
       }),
@@ -120,6 +120,19 @@ export function AlertsPage() {
           </GlassCard>
         ))}
       </div>
+
+      {/* Analysis Progress - Mimicking CorrelationsPage */}
+      {detectMutation.isPending && (
+        <GlassCard className="p-4 border-l-4 border-l-primary">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="h-5 w-5 animate-spin text-primary" />
+            <div>
+              <p className="font-medium">Analyzing health data...</p>
+              <p className="text-xs text-muted-foreground">Running anomaly detection algorithms</p>
+            </div>
+          </div>
+        </GlassCard>
+      )}
 
       {/* Insights */}
       {insights && (
