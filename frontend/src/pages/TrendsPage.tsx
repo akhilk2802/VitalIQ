@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDashboard } from '@/hooks/useDashboard'
 import { ChartContainer, AreaChart, LineChart, BarChart } from '@/components/charts'
-import { TimeRangeTabs } from '@/components/dashboard'
+import { TimeRangeTabs, CorrelationOverview } from '@/components/dashboard'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function TrendsPage() {
@@ -60,13 +60,18 @@ export function TrendsPage() {
       </div>
 
       {/* Metric tabs */}
-      <Tabs defaultValue="sleep" className="space-y-6">
+      <Tabs defaultValue="compare" className="space-y-6">
         <TabsList>
+          <TabsTrigger value="compare">Compare All</TabsTrigger>
           <TabsTrigger value="sleep">Sleep</TabsTrigger>
           <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
           <TabsTrigger value="exercise">Exercise</TabsTrigger>
           <TabsTrigger value="vitals">Vitals</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="compare" className="space-y-6">
+          <CorrelationOverview days={timeRange} />
+        </TabsContent>
 
         <TabsContent value="sleep" className="space-y-6">
           <ChartContainer

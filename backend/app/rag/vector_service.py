@@ -71,17 +71,18 @@ class VectorService:
         # Add source type filter
         if source_types:
             source_values = [st.value for st in source_types]
-            query += " AND source_type = ANY(:source_types)"
+            query += " AND source_type = ANY(:source_types::text[])"
             params["source_types"] = source_values
         
-        query += " ORDER BY embedding <=> :embedding ASC LIMIT :k"
-        params["embedding"] = embedding_str
+        query += f" ORDER BY embedding <=> '{embedding_str}'::vector ASC LIMIT :k"
         
-        result = await self.db.execute(
-            text(query.replace(":embedding", f"'{embedding_str}'::vector")),
-            params
-        )
-        rows = result.fetchall()
+        try:
+            result = await self.db.execute(text(query), params)
+            rows = result.fetchall()
+        except Exception as e:
+            # Log and return empty on query failure
+            print(f"Knowledge vector search query failed: {e}")
+            return []
         
         return [
             {
@@ -121,6 +122,7 @@ class VectorService:
         """
         embedding_str = f"[{','.join(map(str, query_embedding))}]"
         
+        # Build query with proper casting for user_id
         query = f"""
             SELECT 
                 id,
@@ -132,21 +134,27 @@ class VectorService:
                 created_at,
                 1 - (embedding <=> '{embedding_str}'::vector) as similarity
             FROM user_history_embeddings
-            WHERE user_id = :user_id
+            WHERE user_id = :user_id::uuid
             AND 1 - (embedding <=> '{embedding_str}'::vector) >= :threshold
         """
         
+        # Pass user_id as string, cast in SQL
         params = {"user_id": str(user_id), "threshold": threshold, "k": k}
         
         if entity_types:
             entity_values = [et.value for et in entity_types]
-            query += " AND entity_type = ANY(:entity_types)"
+            query += " AND entity_type = ANY(:entity_types::text[])"
             params["entity_types"] = entity_values
         
         query += f" ORDER BY embedding <=> '{embedding_str}'::vector ASC LIMIT :k"
         
-        result = await self.db.execute(text(query), params)
-        rows = result.fetchall()
+        try:
+            result = await self.db.execute(text(query), params)
+            rows = result.fetchall()
+        except Exception as e:
+            # Log and return empty on query failure
+            print(f"Vector search query failed: {e}")
+            return []
         
         return [
             {
